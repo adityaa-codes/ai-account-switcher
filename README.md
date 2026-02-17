@@ -63,6 +63,10 @@ switcher gemini next
 # Check health of all profiles
 switcher gemini health
 
+# Export a profile to back it up
+switcher gemini export work@gmail.com ~/backups/
+switcher gemini export 1 ~/backups/my-creds.json
+
 # View status dashboard
 switcher
 ```
@@ -79,6 +83,9 @@ switcher codex import ~/.codex/auth.json my-chatgpt
 
 # Switch
 switcher codex switch work-key
+
+# Export
+switcher codex export work-key ~/backups/
 ```
 
 ## Command Reference
@@ -92,6 +99,7 @@ switcher codex switch work-key
 | `switcher gemini add [label] [--type oauth\|apikey]` | Add profile |
 | `switcher gemini remove <n\|label>` | Remove profile |
 | `switcher gemini import <path> [label]` | Import credentials file |
+| `switcher gemini export <n\|label> [dest]` | Export profile credentials |
 | `switcher gemini health` | Check all profiles health |
 | `switcher codex list` | List Codex profiles |
 | `switcher codex switch <n\|label>` | Switch to profile |
@@ -99,6 +107,7 @@ switcher codex switch work-key
 | `switcher codex add [label] [--type apikey\|chatgpt]` | Add profile |
 | `switcher codex remove <n\|label>` | Remove profile |
 | `switcher codex import <path> [label]` | Import auth.json or API key |
+| `switcher codex export <n\|label> [dest]` | Export profile credentials |
 | `switcher config` | Show configuration |
 | `switcher config set <key> <value>` | Set config value |
 | `switcher install` | Install shell + hook integration |

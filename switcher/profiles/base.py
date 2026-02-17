@@ -147,6 +147,18 @@ class ProfileManager(ABC):
             The newly created Profile.
         """
 
+    @abstractmethod
+    def export_profile(self, identifier: str, dest: Path) -> Path:
+        """Export a profile's credentials to a file.
+
+        Args:
+            identifier: 1-based index string or profile label.
+            dest: Destination path (file or directory).
+
+        Returns:
+            The path of the exported file.
+        """
+
     def _resolve_identifier(self, identifier: str) -> Profile:
         """Resolve an index or label string to a Profile.
 

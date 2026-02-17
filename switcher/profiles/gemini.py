@@ -1,4 +1,4 @@
-"""Gemini CLI profile manager — list, add, remove, switch, import."""
+"""Gemini CLI profile manager — list, add, remove, switch, import, export."""
 
 from __future__ import annotations
 
@@ -195,6 +195,37 @@ class GeminiProfileManager(ProfileManager):
         save_meta(profile.path, profile.meta)
         logger.info("Imported %s credentials as '%s'", auth_type, label)
         return profile
+
+    def export_profile(self, identifier: str, dest: Path) -> Path:
+        """Export a Gemini profile's credentials to a file.
+
+        Args:
+            identifier: 1-based index or label.
+            dest: Destination path (file or directory).
+
+        Returns:
+            The path of the exported file.
+        """
+        profile = self._resolve_identifier(identifier)
+
+        # Determine the credential file to export
+        if profile.auth_type == "oauth":
+            src = profile.path / "oauth_creds.json"
+            default_name = f"{profile.label}_oauth_creds.json"
+        else:
+            src = profile.path / "api_key.txt"
+            default_name = f"{profile.label}_api_key.txt"
+
+        if not src.exists():
+            raise AuthError(f"No credential file found for profile '{profile.label}'")
+
+        # Resolve dest — if it's a directory, use default filename
+        out = dest / default_name if dest.is_dir() else dest
+
+        out.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, out)
+        logger.info("Exported '%s' → %s", profile.label, out)
+        return out
 
     @staticmethod
     def _detect_import_type(path: Path) -> str:

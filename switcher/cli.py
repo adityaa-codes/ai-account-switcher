@@ -174,6 +174,14 @@ def cmd_import(args: argparse.Namespace, cli_name: str) -> None:
     print_success(f"Imported as '{profile.label}' ({profile.auth_type})")
 
 
+def cmd_export(args: argparse.Namespace, cli_name: str) -> None:
+    """Export a profile's credentials to a file."""
+    mgr = _get_manager(cli_name)
+    dest = Path(args.dest) if hasattr(args, "dest") and args.dest else Path.cwd()
+    out = mgr.export_profile(args.target, dest)
+    print_success(f"Exported to: {out}")
+
+
 def cmd_health(_args: argparse.Namespace, cli_name: str) -> None:
     """Check health of all profiles."""
     from switcher.health import check_all_profiles
@@ -286,6 +294,11 @@ def _add_cli_subcommands(
     imp_p.add_argument("path", help="Path to credentials file")
     imp_p.add_argument("label", nargs="?", help="Profile label")
 
+    # export
+    exp_p = cli_sub.add_parser("export", help="Export profile credentials")
+    exp_p.add_argument("target", help="Profile index (1-based) or label")
+    exp_p.add_argument("dest", nargs="?", help="Destination path (file or directory)")
+
     # health
     cli_sub.add_parser("health", help="Check profile health")
 
@@ -331,6 +344,7 @@ _CLI_ACTIONS: dict[str, Any] = {
     "add": cmd_add,
     "remove": cmd_remove,
     "import": cmd_import,
+    "export": cmd_export,
     "health": cmd_health,
 }
 

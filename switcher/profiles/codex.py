@@ -1,4 +1,4 @@
-"""Codex CLI profile manager — list, add, remove, switch, import."""
+"""Codex CLI profile manager — list, add, remove, switch, import, export."""
 
 from __future__ import annotations
 
@@ -200,6 +200,31 @@ class CodexProfileManager(ProfileManager):
         save_meta(profile.path, profile.meta)
         logger.info("Imported %s credentials as '%s'", auth_type, label)
         return profile
+
+    def export_profile(self, identifier: str, dest: Path) -> Path:
+        """Export a Codex profile's credentials to a file.
+
+        Args:
+            identifier: 1-based index or label.
+            dest: Destination path (file or directory).
+
+        Returns:
+            The path of the exported file.
+        """
+        profile = self._resolve_identifier(identifier)
+
+        src = profile.path / "auth.json"
+        default_name = f"{profile.label}_auth.json"
+
+        if not src.exists():
+            raise AuthError(f"No credential file found for profile '{profile.label}'")
+
+        out = dest / default_name if dest.is_dir() else dest
+
+        out.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, out)
+        logger.info("Exported '%s' → %s", profile.label, out)
+        return out
 
     @staticmethod
     def _detect_import_type(path: Path) -> str:
