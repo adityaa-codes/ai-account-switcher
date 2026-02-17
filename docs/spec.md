@@ -840,22 +840,22 @@ Python 3.11+ has `tomllib` in stdlib, so `tomli` is only needed for 3.10.
 
 ### Phase 7: Installer
 
-- [ ] **T-020** Implement `switcher/installer.py`:
-  - [ ] T-020a: `detect_shell()` — check `$SHELL`, return "bash", "zsh", or "fish"
-  - [ ] T-020b: `get_rc_file(shell)` — return path to `.bashrc`, `.zshrc`, or `config.fish`
-  - [ ] T-020c: `generate_shell_snippet()` — build the shell integration block with marker comments
-  - [ ] T-020d: `inject_into_rc(rc_path, snippet)` — append snippet if not already present (idempotent)
-  - [ ] T-020e: `remove_from_rc(rc_path)` — remove lines between marker comments
-  - [ ] T-020f: `install_gemini_hooks(settings_path)` — merge hooks into settings.json (idempotent)
-  - [ ] T-020g: `remove_gemini_hooks(settings_path)` — remove hooks by name from settings.json
-  - [ ] T-020h: `install_slash_command(commands_dir)` — write `change.toml`
-  - [ ] T-020i: `remove_slash_command(commands_dir)` — delete `change.toml`
-  - [ ] T-020j: `generate_env_sh()` — write `env.sh` based on current active API key profiles
-  - [ ] T-020k: `install_bin_symlink()` — symlink to `~/.local/bin/switcher`
-  - [ ] T-020l: `remove_bin_symlink()` — remove the symlink
-  - [ ] T-020m: `copy_hook_scripts()` — copy hook .py files to `~/.config/cli-switcher/hooks/`
-  - [ ] T-020n: `run_install()` — orchestrate all install steps, print summary
-  - [ ] T-020o: `run_uninstall()` — orchestrate all uninstall steps, print summary
+- [x] **T-020** Implement `switcher/installer.py`:
+  - [x] T-020a: `detect_shell()` — check `$SHELL`, return "bash", "zsh", or "fish"
+  - [x] T-020b: `get_rc_file(shell)` — return path to `.bashrc`, `.zshrc`, or `config.fish`
+  - [x] T-020c: `generate_shell_snippet()` — build the shell integration block with marker comments
+  - [x] T-020d: `inject_into_rc(rc_path, snippet)` — append snippet if not already present (idempotent)
+  - [x] T-020e: `remove_from_rc(rc_path)` — remove lines between marker comments
+  - [x] T-020f: `install_gemini_hooks(settings_path)` — merge hooks into settings.json (idempotent)
+  - [x] T-020g: `remove_gemini_hooks(settings_path)` — remove hooks by name from settings.json
+  - [x] T-020h: `install_slash_command(commands_dir)` — write `change.toml`
+  - [x] T-020i: `remove_slash_command(commands_dir)` — delete `change.toml`
+  - [x] T-020j: `generate_env_sh()` — write `env.sh` based on current active API key profiles
+  - [x] T-020k: `install_bin_symlink()` — symlink to `~/.local/bin/switcher`
+  - [x] T-020l: `remove_bin_symlink()` — remove the symlink
+  - [x] T-020m: `copy_hook_scripts()` — copy hook .py files to `~/.config/cli-switcher/hooks/`
+  - [x] T-020n: `run_install()` — orchestrate all install steps, print summary
+  - [x] T-020o: `run_uninstall()` — orchestrate all uninstall steps, print summary
 
 ### Phase 8: Polish & Testing
 

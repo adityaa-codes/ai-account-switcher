@@ -234,14 +234,16 @@ def _print_config(config: dict[str, Any], prefix: str = "") -> None:
 
 def cmd_install(_args: argparse.Namespace) -> None:
     """Install shell + hook integration."""
-    # Installer implementation in Phase 7
-    print_warning("Install not yet implemented.")
+    from switcher.installer import run_install
+
+    run_install()
 
 
 def cmd_uninstall(_args: argparse.Namespace) -> None:
     """Remove shell + hook integration."""
-    # Uninstaller implementation in Phase 7
-    print_warning("Uninstall not yet implemented.")
+    from switcher.installer import run_uninstall
+
+    run_uninstall()
 
 
 def cmd_version(_args: argparse.Namespace) -> None:
