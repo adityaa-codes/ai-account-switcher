@@ -805,14 +805,14 @@ Python 3.11+ has `tomllib` in stdlib, so `tomli` is only needed for 3.10.
 
 ### Phase 5: Health Checks
 
-- [ ] **T-017** Implement `switcher/health.py`:
-  - [ ] T-017a: `check_gemini_oauth(profile_dir)` — attempt token refresh via Google endpoint
-  - [ ] T-017b: `check_gemini_apikey(api_key)` — minimal `models.list` API call
-  - [ ] T-017c: `check_codex_apikey(api_key)` — minimal OpenAI `models` API call
-  - [ ] T-017d: `check_codex_chatgpt(profile_dir)` — attempt token refresh via OpenAI endpoint
-  - [ ] T-017e: `check_profile(cli_name, profile)` — dispatch to correct check based on auth_type
-  - [ ] T-017f: `check_all_profiles(cli_name)` — iterate profiles, update meta.json with results
-  - [ ] T-017g: `interpret_http_status(status_code)` — map 200/401/403/429 → health_status enum
+- [x] **T-017** Implement `switcher/health.py`:
+  - [x] T-017a: `check_gemini_oauth(profile_dir)` — attempt token refresh via Google endpoint
+  - [x] T-017b: `check_gemini_apikey(api_key)` — minimal `models.list` API call
+  - [x] T-017c: `check_codex_apikey(api_key)` — minimal OpenAI `models` API call
+  - [x] T-017d: `check_codex_chatgpt(profile_dir)` — attempt token refresh via OpenAI endpoint
+  - [x] T-017e: `check_profile(cli_name, profile)` — dispatch to correct check based on auth_type
+  - [x] T-017f: `check_all_profiles(cli_name)` — iterate profiles, update meta.json with results
+  - [x] T-017g: `interpret_http_status(status_code)` — map 200/401/403/429 → health_status enum
 
 ### Phase 6: Hooks (Auto-Rotation)
 

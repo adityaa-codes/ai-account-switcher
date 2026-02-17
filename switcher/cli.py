@@ -176,8 +176,25 @@ def cmd_import(args: argparse.Namespace, cli_name: str) -> None:
 
 def cmd_health(_args: argparse.Namespace, cli_name: str) -> None:
     """Check health of all profiles."""
-    # Health check implementation in Phase 5
-    print_warning(f"Health checks for {cli_name} not yet implemented.")
+    from switcher.health import check_all_profiles
+    from switcher.ui import print_table
+
+    mgr = _get_manager(cli_name)
+    profiles = mgr.list_profiles()
+    if not profiles:
+        print_warning(f"No {cli_name} profiles configured.")
+        return
+
+    print_info(f"Checking {cli_name} profiles...")
+    results = check_all_profiles(cli_name, profiles)
+
+    headers = ["#", "Label", "Status", "Detail"]
+    rows: list[list[str]] = []
+    for i, (profile, status, detail) in enumerate(results, 1):
+        rows.append([f"{i:02d}.", profile.label, status, detail])
+
+    print()
+    print_table(headers, rows)
 
 
 def cmd_config(args: argparse.Namespace) -> None:
