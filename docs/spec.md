@@ -816,27 +816,27 @@ Python 3.11+ has `tomllib` in stdlib, so `tomli` is only needed for 3.10.
 
 ### Phase 6: Hooks (Auto-Rotation)
 
-- [ ] **T-018** Implement `switcher/hooks/gemini_after_agent.py`:
-  - [ ] T-018a: Read stdin JSON → extract `prompt_response`
-  - [ ] T-018b: `QUOTA_ERROR_PATTERNS` list — regex patterns for quota errors
-  - [ ] T-018c: `is_quota_error(response)` — match against patterns
-  - [ ] T-018d: Load config and check `auto_rotate.enabled`
-  - [ ] T-018e: Retry count management via `state.json` (with file lock)
-  - [ ] T-018f: Call `switcher gemini next` via subprocess on match
-  - [ ] T-018g: Output JSON `{"decision": "retry", "systemMessage": "..."}` on successful switch
-  - [ ] T-018h: Reset retry count on non-error responses (clear state)
-  - [ ] T-018i: Wrap everything in try/except → output `{}` on any error
+- [x] **T-018** Implement `switcher/hooks/gemini_after_agent.py`:
+  - [x] T-018a: Read stdin JSON → extract `prompt_response`
+  - [x] T-018b: `QUOTA_ERROR_PATTERNS` list — regex patterns for quota errors
+  - [x] T-018c: `is_quota_error(response)` — match against patterns
+  - [x] T-018d: Load config and check `auto_rotate.enabled`
+  - [x] T-018e: Retry count management via `state.json` (with file lock)
+  - [x] T-018f: Call `switcher gemini next` via subprocess on match
+  - [x] T-018g: Output JSON `{"decision": "retry", "systemMessage": "..."}` on successful switch
+  - [x] T-018h: Reset retry count on non-error responses (clear state)
+  - [x] T-018i: Wrap everything in try/except → output `{}` on any error
 
-- [ ] **T-019** Implement `switcher/hooks/gemini_before_agent.py`:
-  - [ ] T-019a: Read stdin JSON → extract `session_id`, `prompt`
-  - [ ] T-019b: Quota cache loading from `state.json` (check TTL)
-  - [ ] T-019c: API calls: `loadCodeAssist` → get project_id, `retrieveUserQuota` → get buckets
-  - [ ] T-019d: Platform detection for API metadata (use `get_platform_string()`)
-  - [ ] T-019e: Strategy evaluation — conservative vs gemini3-first
-  - [ ] T-019f: Call `switcher gemini next` if switch needed
-  - [ ] T-019g: Save quota data to cache with timestamp
-  - [ ] T-019h: Output `{"systemMessage": "..."}` if switched, else `{}`
-  - [ ] T-019i: Wrap in try/except → output `{}` on any error
+- [x] **T-019** Implement `switcher/hooks/gemini_before_agent.py`:
+  - [x] T-019a: Read stdin JSON → extract `session_id`, `prompt`
+  - [x] T-019b: Quota cache loading from `state.json` (check TTL)
+  - [x] T-019c: API calls: `loadCodeAssist` → get project_id, `retrieveUserQuota` → get buckets
+  - [x] T-019d: Platform detection for API metadata (use `get_platform_string()`)
+  - [x] T-019e: Strategy evaluation — conservative vs gemini3-first
+  - [x] T-019f: Call `switcher gemini next` if switch needed
+  - [x] T-019g: Save quota data to cache with timestamp
+  - [x] T-019h: Output `{"systemMessage": "..."}` if switched, else `{}`
+  - [x] T-019i: Wrap in try/except → output `{}` on any error
 
 ### Phase 7: Installer
 
