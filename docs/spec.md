@@ -859,27 +859,27 @@ Python 3.11+ has `tomllib` in stdlib, so `tomli` is only needed for 3.10.
 
 ### Phase 8: Polish & Testing
 
-- [ ] **T-021** Status dashboard:
-  - [ ] T-021a: Wire `cmd_status()` to gather all profile + health data
-  - [ ] T-021b: Handle edge case: no profiles for a CLI
-  - [ ] T-021c: Handle edge case: CLIs not installed
+- [x] **T-021** Status dashboard:
+  - [x] T-021a: Wire `cmd_status()` to gather all profile + health data
+  - [x] T-021b: Handle edge case: no profiles for a CLI
+  - [x] T-021c: Handle edge case: CLIs not installed
 
-- [ ] **T-022** Error handling sweep:
-  - [ ] T-022a: Ensure all user-facing commands catch `SwitcherError` and print friendly messages
-  - [ ] T-022b: Ensure all file operations handle `PermissionError`, `FileNotFoundError`
-  - [ ] T-022c: Ensure hooks never exit non-zero (always `sys.exit(0)`)
+- [x] **T-022** Error handling sweep:
+  - [x] T-022a: Ensure all user-facing commands catch `SwitcherError` and print friendly messages
+  - [x] T-022b: Ensure all file operations handle `PermissionError`, `FileNotFoundError`
+  - [x] T-022c: Ensure hooks never exit non-zero (always `sys.exit(0)`)
 
-- [ ] **T-023** Edge cases:
-  - [ ] T-023a: First run — no config, no profiles, no state → create defaults
-  - [ ] T-023b: Broken symlink detection → warn and offer repair
-  - [ ] T-023c: Profile dir exists but creds missing → `ProfileCorruptError`
-  - [ ] T-023d: Only one profile → `switch_next()` warns "only one account"
-  - [ ] T-023e: Active profile deleted externally → detect and clear state
+- [x] **T-023** Edge cases:
+  - [x] T-023a: First run — no config, no profiles, no state → create defaults
+  - [x] T-023b: Broken symlink detection → warn and offer repair
+  - [x] T-023c: Profile dir exists but creds missing → `ProfileCorruptError`
+  - [x] T-023d: Only one profile → `switch_next()` warns "only one account"
+  - [x] T-023e: Active profile deleted externally → detect and clear state
 
-- [ ] **T-024** Documentation:
-  - [ ] T-024a: Write `README.md` — installation, quickstart, full command reference
-  - [ ] T-024b: Add inline docstrings to all public functions
-  - [ ] T-024c: Update `docs/spec.md` if design changed during implementation
+- [x] **T-024** Documentation:
+  - [x] T-024a: Write `README.md` — installation, quickstart, full command reference
+  - [x] T-024b: Add inline docstrings to all public functions
+  - [x] T-024c: Update `docs/spec.md` if design changed during implementation
 
 - [ ] **T-025** Manual testing on Ubuntu:
   - [ ] T-025a: Test with real Gemini CLI — add 2 OAuth profiles, switch, verify CLI uses new account
