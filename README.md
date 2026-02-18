@@ -1,6 +1,6 @@
 <div align="center">
 
-# CLI Switcher
+# AI Account Switcher
 
 **Unified multi-account manager for [Gemini CLI](https://github.com/google-gemini/gemini-cli) and [Codex CLI](https://github.com/openai/codex) on Linux**
 
@@ -12,7 +12,7 @@
 
 ---
 
-Switch between multiple Google Gemini and OpenAI Codex accounts instantly — no re-login required. CLI Switcher manages OAuth tokens, API keys, keyring credentials, and shell wrappers so you can jump between work, personal, and test accounts in a single command.
+Switch between multiple Google Gemini and OpenAI Codex accounts instantly — no re-login required. AI Account Switcher manages OAuth tokens, API keys, keyring credentials, and shell wrappers so you can jump between work, personal, and test accounts in a single command.
 
 ## Table of Contents
 
@@ -46,7 +46,7 @@ Switch between multiple Google Gemini and OpenAI Codex accounts instantly — no
 - **Auto-rotation** — Gemini hooks detect quota exhaustion and rotate profiles automatically
 - **Shell integration** — `env.sh` sourced per invocation via shell wrappers and aliases
 - **Import/export** — move profiles between machines or back them up
-- **XDG compliant** — all state stored under `~/.config/cli-switcher/`
+- **XDG compliant** — all state stored under `~/.config/ai-account-switcher/`
 
 ## Requirements
 
@@ -63,8 +63,8 @@ Switch between multiple Google Gemini and OpenAI Codex accounts instantly — no
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/your-user/gemini-switcher.git
-cd gemini-switcher
+git clone https://github.com/your-user/ai-account-switcher.git
+cd ai-account-switcher
 
 # 2. Create a virtual environment and install
 python3 -m venv .venv
@@ -82,7 +82,7 @@ source ~/.bashrc   # or ~/.zshrc
 
 ```bash
 switcher version
-# cli-switcher 0.1.0
+# ai-account-switcher 0.1.0
 
 switcher
 # Shows the status dashboard
@@ -92,7 +92,7 @@ switcher
 
 ```bash
 switcher uninstall   # removes shell hooks, aliases, bin symlink
-pip uninstall cli-switcher
+pip uninstall ai-account-switcher
 ```
 
 ## Quick Start
@@ -274,7 +274,7 @@ Hooks are registered in `~/.gemini/settings.json` by `switcher install`.
   - `/change` → rotate to the next Gemini profile (runs `switcher gemini next`)
   - Command file: `~/.gemini/commands/change.toml`
 - **Codex CLI**
-  - No custom slash commands are installed by `cli-switcher` currently.
+  - No custom slash commands are installed by `ai-account-switcher` currently.
   - Use regular commands instead (for example: `sw codex next`).
 
 ### Health Checks
@@ -296,7 +296,7 @@ Health checks verify:
 
 ### Configuration
 
-All configuration is stored in `~/.config/cli-switcher/config.toml`:
+All configuration is stored in `~/.config/ai-account-switcher/config.toml`:
 
 ```toml
 [general]
@@ -375,7 +375,7 @@ switcher config set general.log_level debug
 4. Next Gemini CLI invocation picks up the new credentials immediately
 
 ### Gemini — API Key Profiles
-1. Writes `GEMINI_API_KEY` and `GOOGLE_API_KEY` to `~/.config/cli-switcher/env.sh`
+1. Writes `GEMINI_API_KEY` and `GOOGLE_API_KEY` to `~/.config/ai-account-switcher/env.sh`
 2. Shell wrapper sources `env.sh` before launching `gemini`
 3. No restart needed — takes effect on next invocation
 
@@ -394,7 +394,7 @@ switcher config set general.log_level debug
 ## Project Structure
 
 ```
-gemini-switcher/
+ai-account-switcher/
 ├── main.py                 # Direct-run entry point
 ├── pyproject.toml           # Project metadata and dependencies
 ├── docs/
@@ -427,11 +427,11 @@ gemini-switcher/
 
 | Path | Purpose |
 |---|---|
-| `~/.config/cli-switcher/config.toml` | User preferences |
-| `~/.config/cli-switcher/state.json` | Active profiles, rotation state |
-| `~/.config/cli-switcher/env.sh` | Exported API key environment variables |
-| `~/.config/cli-switcher/profiles/` | Profile credential storage |
-| `~/.config/cli-switcher/logs/switcher.log` | Application log |
+| `~/.config/ai-account-switcher/config.toml` | User preferences |
+| `~/.config/ai-account-switcher/state.json` | Active profiles, rotation state |
+| `~/.config/ai-account-switcher/env.sh` | Exported API key environment variables |
+| `~/.config/ai-account-switcher/profiles/` | Profile credential storage |
+| `~/.config/ai-account-switcher/logs/switcher.log` | Application log |
 | `~/.gemini/oauth_creds.json` | Symlinked by switcher |
 | `~/.gemini/settings.json` | Gemini hooks registered here |
 | `~/.codex/auth.json` | Symlinked by switcher |
@@ -446,8 +446,8 @@ Contributions are welcome! Here's how to get started.
 
 ```bash
 # Clone and enter the repository
-git clone https://github.com/your-user/gemini-switcher.git
-cd gemini-switcher
+git clone https://github.com/your-user/ai-account-switcher.git
+cd ai-account-switcher
 
 # Create a virtual environment
 python3 -m venv .venv
@@ -522,7 +522,7 @@ mypy switcher/
 
 - Use GitHub Issues to report bugs or request features
 - Include your Python version, OS, and the output of `switcher version`
-- For bugs, include the relevant log output from `~/.config/cli-switcher/logs/switcher.log`
+- For bugs, include the relevant log output from `~/.config/ai-account-switcher/logs/switcher.log`
 
 ---
 

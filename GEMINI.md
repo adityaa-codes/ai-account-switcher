@@ -1,8 +1,8 @@
-# Gemini CLI Switcher Context
+# AI Account Switcher Context
 
 ## Project Overview
 
-**CLI Switcher** is a unified multi-account manager for the **Google Gemini CLI** and **OpenAI Codex CLI** on Linux. It enables developers to seamlessly switch between personal, work, and test accounts without manual re-authentication or configuration editing.
+**AI Account Switcher** is a unified multi-account manager for the **Google Gemini CLI** and **OpenAI Codex CLI** on Linux. It enables developers to seamlessly switch between personal, work, and test accounts without manual re-authentication or configuration editing.
 
 **Key Features:**
 - **Instant Switching:** Atomic symlink swaps and environment variable injection allow switching without restarting the shell.
@@ -18,7 +18,7 @@
 - **CLI Framework:** `argparse` (standard library, no external CLI frameworks)
 - **Configuration:** TOML (`pyproject.toml` for project, `config.toml` for user config)
 - **State Management:** JSON with file locking (`fcntl`) to ensure concurrency safety.
-- **Paths:** Strictly adheres to XDG Base Directory specification (`~/.config/cli-switcher/`).
+- **Paths:** Strictly adheres to XDG Base Directory specification (`~/.config/ai-account-switcher/`).
 
 ## Building & Running
 
