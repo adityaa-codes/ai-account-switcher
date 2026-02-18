@@ -4,7 +4,9 @@ and command routing for cli-switcher."""
 from __future__ import annotations
 
 import argparse
+import json
 import logging
+import subprocess
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -31,9 +33,81 @@ from switcher.ui import (
 from switcher.utils import ensure_dirs, setup_logging
 
 if TYPE_CHECKING:
-    from switcher.profiles.base import ProfileManager
+    from switcher.profiles.base import Profile, ProfileManager
 
 logger = logging.getLogger("switcher.cli")
+
+
+def _profile_has_oauth_creds(profile: Profile) -> bool:
+    """Return True if a profile has non-empty OAuth credentials."""
+    creds_path = profile.path / "oauth_creds.json"
+    if not creds_path.exists():
+        return False
+
+    try:
+        payload = json.loads(creds_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return False
+
+    token = payload.get("token", payload)
+    if not isinstance(token, dict):
+        return False
+
+    return bool(
+        token.get("refreshToken")
+        or token.get("refresh_token")
+        or token.get("accessToken")
+        or token.get("access_token")
+    )
+
+
+def _run_gemini_oauth_enrollment(profile: Profile) -> bool:
+    """Launch Gemini CLI OAuth flow and capture creds into the profile."""
+    from switcher.auth.gemini_auth import (
+        GEMINI_KEYRING_KEY,
+        GEMINI_KEYRING_SERVICE,
+        clear_gemini_cache,
+    )
+    from switcher.auth.keyring_backend import keyring_delete
+    from switcher.utils import atomic_symlink, get_gemini_dir
+
+    creds_path = profile.path / "oauth_creds.json"
+    if not creds_path.exists():
+        creds_path.write_text("{}\n", encoding="utf-8")
+
+    gemini_dir = get_gemini_dir()
+    gemini_dir.mkdir(parents=True, exist_ok=True)
+    atomic_symlink(creds_path, gemini_dir / "oauth_creds.json")
+
+    # Force Gemini CLI to request fresh login credentials.
+    try:
+        keyring_delete(GEMINI_KEYRING_SERVICE, GEMINI_KEYRING_KEY)
+    except Exception:
+        logger.debug("Failed to clear Gemini OAuth keyring entry", exc_info=True)
+    clear_gemini_cache()
+
+    print_info("Launching Gemini CLI. Complete OAuth in the browser, then exit Gemini.")
+    try:
+        result = subprocess.run(["gemini"], check=False)
+    except FileNotFoundError:
+        print_error("Gemini CLI not found in PATH. Install it, then retry.")
+        return False
+    except KeyboardInterrupt:
+        print()
+        return False
+
+    if result.returncode not in (0, 130):
+        print_warning(
+            f"Gemini exited with code {result.returncode}. Checking credentials..."
+        )
+
+    if not _profile_has_oauth_creds(profile):
+        print_warning(f"No OAuth credentials captured for '{profile.label}'.")
+        print_info(f"Retry with: switcher gemini switch {profile.label}")
+        return False
+
+    print_success(f"Captured Gemini OAuth credentials for: {profile.label}")
+    return True
 
 
 def _get_manager(cli_name: str) -> ProfileManager:
@@ -84,10 +158,22 @@ def cmd_list(_args: argparse.Namespace, cli_name: str) -> None:
 def cmd_switch(args: argparse.Namespace, cli_name: str) -> None:
     """Switch to a profile."""
     mgr = _get_manager(cli_name)
-    label = mgr.switch_to(args.target)
-    print_success(f"Switched {cli_name} to: {label}")
-
     profile = mgr.get_profile(args.target)
+
+    if (
+        cli_name == "gemini"
+        and profile.auth_type == "oauth"
+        and not _profile_has_oauth_creds(profile)
+    ):
+        print_warning(f"Profile '{profile.label}' has no OAuth credentials yet.")
+        if not confirm("Start Gemini OAuth flow now?"):
+            print_info("Cancelled.")
+            return
+        if not _run_gemini_oauth_enrollment(profile):
+            return
+
+    label = mgr.switch_to(profile.label)
+    print_success(f"Switched {cli_name} to: {label}")
     if profile.auth_type == "oauth":
         print_info(f"Restart {cli_name} CLI to apply OAuth changes.")
     elif profile.auth_type == "chatgpt":
@@ -138,6 +224,26 @@ def cmd_add(args: argparse.Namespace, cli_name: str) -> None:
     mgr = _get_manager(cli_name)
     profile = mgr.add_profile(label, auth_type)
     print_success(f"Created {cli_name} profile: {profile.label}")
+
+    if cli_name == "gemini" and auth_type == "oauth":
+        if _profile_has_oauth_creds(profile):
+            print_info("Imported existing Gemini OAuth credentials.")
+            return
+
+        print_warning("Profile created without OAuth credentials.")
+        if confirm("Start Gemini OAuth flow now?"):
+            if _run_gemini_oauth_enrollment(profile) and confirm(
+                f"Switch to '{profile.label}' now?"
+            ):
+                cmd_switch(
+                    argparse.Namespace(target=profile.label),
+                    cli_name="gemini",
+                )
+        else:
+            print_info(
+                f"Run `switcher gemini switch {profile.label}` to start OAuth later."
+            )
+        return
 
     if auth_type == "apikey":
         if cli_name == "gemini":
@@ -207,25 +313,60 @@ def cmd_health(_args: argparse.Namespace, cli_name: str) -> None:
 
 def cmd_config(args: argparse.Namespace) -> None:
     """View or set config values."""
-    if args.key is None:
+    key = getattr(args, "key", None)
+    value = getattr(args, "value", None)
+    extra = list(getattr(args, "extra", []) or [])
+
+    if key is None:
         # Show all config
         config = load_config()
         _print_config(config)
         return
 
-    if args.value is None:
+    # Explicit subcommand form:
+    #   switcher config get <key>
+    #   switcher config set <key> <value>
+    if key == "get":
+        if value is None or extra:
+            print_error("Usage: switcher config get <key>")
+            return
         # Get single value
         try:
-            value = get_config_value(args.key)
-            print(f"  {args.key} = {value!r}")
+            current = get_config_value(value)
+            print(f"  {value} = {current!r}")
         except SwitcherError as exc:
             print_error(str(exc))
         return
 
-    # Set value
+    if key == "set":
+        if value is None or len(extra) != 1:
+            print_error("Usage: switcher config set <key> <value>")
+            return
+        try:
+            set_config_value(value, extra[0])
+            print_success(f"Set {value} = {extra[0]!r}")
+        except SwitcherError as exc:
+            print_error(str(exc))
+        return
+
+    # Legacy forms (still supported):
+    #   switcher config <key>
+    #   switcher config <key> <value>
+    if extra:
+        print_error("Usage: switcher config [<key> [<value>]]")
+        return
+
+    if value is None:
+        try:
+            current = get_config_value(key)
+            print(f"  {key} = {current!r}")
+        except SwitcherError as exc:
+            print_error(str(exc))
+        return
+
     try:
-        set_config_value(args.key, args.value)
-        print_success(f"Set {args.key} = {args.value!r}")
+        set_config_value(key, value)
+        print_success(f"Set {key} = {value!r}")
     except SwitcherError as exc:
         print_error(str(exc))
 
@@ -323,6 +464,7 @@ def build_parser() -> argparse.ArgumentParser:
     config_p = subparsers.add_parser("config", help="View or set config")
     config_p.add_argument("key", nargs="?", help="Config key")
     config_p.add_argument("value", nargs="?", help="Config value")
+    config_p.add_argument("extra", nargs="*", help=argparse.SUPPRESS)
 
     # install / uninstall
     subparsers.add_parser("install", help="Install shell + hook integration")

@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+import shutil
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import requests
@@ -12,19 +15,23 @@ import requests
 from switcher.profiles.base import save_meta
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from switcher.profiles.base import Profile
 
 logger = logging.getLogger("switcher.health")
 
 # Google OAuth token endpoint
 _GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
-# Google OAuth client credentials (public, embedded in Gemini CLI source)
-_GOOGLE_CLIENT_ID = (
-    "710733570747-4bm2qi30m3sj1e2t6ri1urlb80sqmnml.apps.googleusercontent.com"
-)
-_GOOGLE_CLIENT_SECRET = "GOCSPX-bwSFJu80JKsALpWxFjJnOk4R"
+# Known Google OAuth client credentials used by Gemini CLI over time.
+_KNOWN_GOOGLE_OAUTH_CLIENTS: list[tuple[str, str]] = [
+    (
+        "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com",
+        "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",
+    ),
+    (
+        "710733570747-4bm2qi30m3sj1e2t6ri1urlb80sqmnml.apps.googleusercontent.com",
+        "GOCSPX-bwSFJu80JKsALpWxFjJnOk4R",
+    ),
+]
 
 # Gemini API key validation endpoint
 _GEMINI_MODELS_URL = "https://generativelanguage.googleapis.com/v1/models"
@@ -36,6 +43,81 @@ _OPENAI_MODELS_URL = "https://api.openai.com/v1/models"
 _OPENAI_TOKEN_URL = "https://auth.openai.com/oauth/token"
 
 _TIMEOUT = 10  # seconds
+
+
+def _discover_gemini_oauth_client() -> tuple[str, str] | None:
+    """Read OAuth client credentials from installed Gemini CLI, if available."""
+    gemini_bin = shutil.which("gemini")
+    if not gemini_bin:
+        return None
+
+    resolved = Path(gemini_bin).resolve()
+    # /.../gemini-cli/dist/index.js -> /.../gemini-cli
+    package_root = resolved.parent.parent
+    oauth2_js = (
+        package_root
+        / "node_modules"
+        / "@google"
+        / "gemini-cli-core"
+        / "dist"
+        / "src"
+        / "code_assist"
+        / "oauth2.js"
+    )
+    if not oauth2_js.exists():
+        return None
+
+    try:
+        content = oauth2_js.read_text(encoding="utf-8")
+    except OSError:
+        return None
+
+    id_match = re.search(r"OAUTH_CLIENT_ID = '([^']+)'", content)
+    secret_match = re.search(r"OAUTH_CLIENT_SECRET = '([^']+)'", content)
+    if not id_match or not secret_match:
+        return None
+    return id_match.group(1), secret_match.group(1)
+
+
+def _google_oauth_clients() -> list[tuple[str, str]]:
+    """Return ordered OAuth clients to try for Gemini refresh checks."""
+    clients: list[tuple[str, str]] = []
+
+    discovered = _discover_gemini_oauth_client()
+    if discovered:
+        clients.append(discovered)
+
+    for candidate in _KNOWN_GOOGLE_OAUTH_CLIENTS:
+        if candidate not in clients:
+            clients.append(candidate)
+
+    return clients
+
+
+def _oauth_error_detail(resp: requests.Response) -> tuple[str, str]:
+    """Extract OAuth error code/description from a response body."""
+    try:
+        payload = resp.json()
+    except (ValueError, json.JSONDecodeError):
+        return "", ""
+
+    if not isinstance(payload, dict):
+        return "", ""
+
+    error = str(payload.get("error", "")).strip()
+    description = str(payload.get("error_description", "")).strip()
+    return error, description
+
+
+def _format_refresh_error(resp: requests.Response) -> str:
+    """Create a human-readable refresh failure message."""
+    error, description = _oauth_error_detail(resp)
+    detail = f"Refresh failed: HTTP {resp.status_code}"
+    if error:
+        detail += f" ({error})"
+    if description:
+        detail += f" - {description}"
+    return detail
 
 
 def interpret_http_status(status_code: int) -> str:
@@ -90,22 +172,61 @@ def check_gemini_oauth(profile_dir: Path) -> tuple[str, str]:
         if 0 < remaining_hours < 24:
             return "expiring", (f"Token expires in {remaining_hours:.1f} hours")
 
-    # Attempt refresh
+    # Attempt refresh with discovered/current and legacy Gemini OAuth clients.
     try:
-        resp = requests.post(
-            _GOOGLE_TOKEN_URL,
-            data={
-                "grant_type": "refresh_token",
-                "refresh_token": refresh_token,
-                "client_id": _GOOGLE_CLIENT_ID,
-                "client_secret": _GOOGLE_CLIENT_SECRET,
-            },
-            timeout=_TIMEOUT,
-        )
-        if resp.status_code == 200:
-            return "valid", "Token refreshed successfully"
-        status = interpret_http_status(resp.status_code)
-        return status, f"Refresh failed: HTTP {resp.status_code}"
+        responses: list[requests.Response] = []
+        for client_id, client_secret in _google_oauth_clients():
+            resp = requests.post(
+                _GOOGLE_TOKEN_URL,
+                data={
+                    "grant_type": "refresh_token",
+                    "refresh_token": refresh_token,
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                },
+                timeout=_TIMEOUT,
+            )
+            if resp.status_code == 200:
+                return "valid", "Token refreshed successfully"
+            responses.append(resp)
+
+            # Some environments treat Gemini as a public OAuth client and reject
+            # client_secret. Retry once without secret before classifying.
+            error, _ = _oauth_error_detail(resp)
+            if resp.status_code == 401 and error in (
+                "invalid_client",
+                "unauthorized_client",
+            ):
+                retry = requests.post(
+                    _GOOGLE_TOKEN_URL,
+                    data={
+                        "grant_type": "refresh_token",
+                        "refresh_token": refresh_token,
+                        "client_id": client_id,
+                    },
+                    timeout=_TIMEOUT,
+                )
+                if retry.status_code == 200:
+                    return "valid", "Token refreshed successfully"
+                responses.append(retry)
+
+        if not responses:
+            return "unknown", "Refresh check did not produce a response"
+
+        for resp in responses:
+            error, _ = _oauth_error_detail(resp)
+            if error == "invalid_grant":
+                return "revoked", _format_refresh_error(resp)
+
+        for resp in responses:
+            error, _ = _oauth_error_detail(resp)
+            if error in ("invalid_client", "unauthorized_client"):
+                continue
+            status = interpret_http_status(resp.status_code)
+            return status, _format_refresh_error(resp)
+
+        # Only invalid_client/unauthorized_client responses were seen.
+        return "unknown", _format_refresh_error(responses[0])
     except requests.RequestException as exc:
         return "unknown", f"Network error: {exc}"
 

@@ -266,16 +266,15 @@ def install_slash_command(commands_dir: Path | None = None) -> bool:
 
     commands_dir.mkdir(parents=True, exist_ok=True)
     toml_path = commands_dir / "change.toml"
+    content = (
+        'description = "Switch to next Gemini account"\n'
+        'prompt = "!switcher gemini next"\n'
+    )
 
-    if toml_path.exists():
+    if toml_path.exists() and toml_path.read_text() == content:
         return False
 
-    toml_path.write_text(
-        "[command]\n"
-        'name = "change"\n'
-        'description = "Switch to next Gemini account"\n'
-        'command = "switcher gemini next"\n'
-    )
+    toml_path.write_text(content)
     return True
 
 
@@ -343,25 +342,35 @@ def generate_env_sh() -> None:
 
 
 def install_bin_symlink() -> bool:
-    """Create ~/.local/bin/switcher symlink to main.py."""
+    """Create ~/.local/bin/switcher symlink to the executable."""
+    import sys
     from pathlib import Path
 
     bin_dir = Path.home() / ".local" / "bin"
     bin_dir.mkdir(parents=True, exist_ok=True)
     link = bin_dir / "switcher"
 
-    # Find main.py
-    main_py = Path(__file__).resolve().parent.parent / "main.py"
-    if not main_py.exists():
-        print_warning(f"main.py not found at {main_py}")
-        return False
+    # Try to find the 'switcher' executable in the same dir as python
+    # This handles venvs correctly (linking to the wrapper script)
+    python_bin_dir = Path(sys.executable).parent
+    executable = python_bin_dir / "switcher"
+
+    if not executable.exists():
+        # Fallback to main.py (e.g. if installed via pip install -e . but not in path)
+        executable = Path(__file__).resolve().parent.parent / "main.py"
+        if not executable.exists():
+            print_warning("Could not find switcher executable or main.py")
+            return False
 
     if link.exists() or link.is_symlink():
         link.unlink()
 
-    link.symlink_to(main_py)
-    # Ensure main.py is executable
-    main_py.chmod(main_py.stat().st_mode | 0o755)
+    link.symlink_to(executable)
+
+    # Ensure it is executable
+    if not os.access(executable, os.X_OK):
+        executable.chmod(executable.stat().st_mode | 0o755)
+
     return True
 
 

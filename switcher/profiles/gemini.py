@@ -77,6 +77,9 @@ class GeminiProfileManager(ProfileManager):
         if profile_dir.exists():
             raise AuthError(f"Profile '{label}' already exists")
 
+        # Snapshot existing profile count before creating the new directory.
+        existing_profiles = [p for p in self.profiles_dir.iterdir() if p.is_dir()]
+
         profile_dir.mkdir(parents=True)
         meta: dict[str, Any] = {
             "label": label,
@@ -93,7 +96,12 @@ class GeminiProfileManager(ProfileManager):
         if auth_type == "oauth":
             # If Gemini CLI already has credentials, offer to import them
             existing_creds = get_gemini_dir() / "oauth_creds.json"
-            if existing_creds.exists() and not get_active_profile("gemini"):
+            should_import_existing = (
+                existing_creds.exists()
+                and not get_active_profile("gemini")
+                and len(existing_profiles) == 0
+            )
+            if should_import_existing:
                 content = existing_creds.read_text(encoding="utf-8")
                 (profile_dir / "oauth_creds.json").write_text(content, encoding="utf-8")
                 logger.info("Imported existing Gemini OAuth credentials for %s", label)

@@ -1,213 +1,531 @@
+<div align="center">
+
 # CLI Switcher
 
-> Unified multi-account manager for **Gemini CLI** and **Codex CLI** — Ubuntu/Linux-first.
+**Unified multi-account manager for [Gemini CLI](https://github.com/google-gemini/gemini-cli) and [Codex CLI](https://github.com/openai/codex) on Linux**
 
-Switch between multiple Google Gemini and OpenAI Codex accounts instantly, without logging in again. Supports OAuth and API key profiles, keyring integration, health checks, and optional auto-rotation on quota exhaustion.
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Status: Alpha](https://img.shields.io/badge/status-alpha-orange.svg)]()
+
+</div>
+
+---
+
+Switch between multiple Google Gemini and OpenAI Codex accounts instantly — no re-login required. CLI Switcher manages OAuth tokens, API keys, keyring credentials, and shell wrappers so you can jump between work, personal, and test accounts in a single command.
+
+## Table of Contents
+
+- [Features](#features)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [How-To Guides](#how-to-guides)
+  - [Managing Gemini Profiles](#managing-gemini-profiles)
+  - [Managing Codex Profiles](#managing-codex-profiles)
+  - [Import & Export Profiles](#import--export-profiles)
+  - [Cross-Machine Profile Transfer](#cross-machine-profile-transfer)
+  - [Auto-Rotation (Gemini)](#auto-rotation-gemini)
+  - [Health Checks](#health-checks)
+  - [Configuration](#configuration)
+- [Command Reference](#command-reference)
+- [How Switching Works](#how-switching-works)
+- [Project Structure](#project-structure)
+- [Contributing](#contributing)
+- [License](#license)
 
 ---
 
 ## Features
 
-- **Instant profile switching** — symlink-based, no CLI restart for API key profiles
-- **Both CLIs** — manages Gemini CLI and Codex CLI from one tool
-- **OAuth + API key** — supports all auth types for both CLIs
-- **Keyring integration** — writes to GNOME Keyring / KWallet (file fallback for headless)
-- **Health checks** — validate tokens before switching
-- **Auto-rotation** — Gemini hooks detect quota errors and switch profiles automatically
-- **Shell integration** — `env.sh` sourced per invocation, aliases, wrappers
-- **XDG compliant** — config in `~/.config/cli-switcher/`
+- **Instant profile switching** — atomic symlink swaps, no CLI restart for API key profiles
+- **Both CLIs, one tool** — manages Gemini CLI and Codex CLI from a single interface
+- **All auth types** — OAuth, API keys (Gemini), API keys, ChatGPT OAuth (Codex)
+- **Keyring integration** — writes to GNOME Keyring / KWallet with automatic file fallback for headless systems
+- **Health checks** — validate tokens and API keys before switching
+- **Auto-rotation** — Gemini hooks detect quota exhaustion and rotate profiles automatically
+- **Shell integration** — `env.sh` sourced per invocation via shell wrappers and aliases
+- **Import/export** — move profiles between machines or back them up
+- **XDG compliant** — all state stored under `~/.config/cli-switcher/`
 
 ## Requirements
 
-- Python 3.10+
-- Linux (Ubuntu 22.04+ recommended)
-- [Gemini CLI](https://github.com/google-gemini/gemini-cli) and/or [Codex CLI](https://github.com/openai/codex)
+| Requirement | Details |
+|---|---|
+| **Python** | 3.10 or newer |
+| **OS** | Linux (Ubuntu 22.04+ recommended) |
+| **CLI tools** | [Gemini CLI](https://github.com/google-gemini/gemini-cli) and/or [Codex CLI](https://github.com/openai/codex) |
+| **Optional** | GNOME Keyring or KWallet for secure credential storage |
 
 ## Installation
 
+### From Source (recommended)
+
 ```bash
-# Clone
+# 1. Clone the repository
 git clone https://github.com/your-user/gemini-switcher.git
 cd gemini-switcher
 
-# Create venv and install
+# 2. Create a virtual environment and install
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
 
-# Install shell integration, hooks, and bin symlink
-python main.py install
+# 3. Install shell integration, hooks, and the `switcher` bin symlink
+switcher install
+
+# 4. Reload your shell
+source ~/.bashrc   # or ~/.zshrc
 ```
 
-After installation, restart your shell or run `source ~/.bashrc` (or `~/.zshrc`).
+### Verify Installation
+
+```bash
+switcher version
+# cli-switcher 0.1.0
+
+switcher
+# Shows the status dashboard
+```
+
+### Uninstall
+
+```bash
+switcher uninstall   # removes shell hooks, aliases, bin symlink
+pip uninstall cli-switcher
+```
 
 ## Quick Start
 
 ```bash
-# Add a Gemini OAuth profile (import from existing login)
-switcher gemini import ~/.gemini/oauth_creds.json work@gmail.com
+# Import your existing Gemini login as a named profile
+switcher gemini import ~/.gemini/oauth_creds.json work
 
-# Add a second Gemini profile
-switcher gemini import ~/backup/oauth_creds.json personal@gmail.com
+# Import a second account
+switcher gemini import ~/backup/oauth_creds.json personal
 
-# List profiles
+# See all profiles
 switcher gemini list
 
-# Switch to a profile by number or label
-switcher gemini switch 2
-switcher gemini switch personal@gmail.com
+# Switch to the personal account
+switcher gemini switch personal
 
-# Rotate to next profile
-switcher gemini next
-
-# Check health of all profiles
-switcher gemini health
-
-# Export a profile to back it up
-switcher gemini export work@gmail.com ~/backups/
-switcher gemini export 1 ~/backups/my-creds.json
-
-# View status dashboard
+# View the dashboard
 switcher
 ```
 
-### Codex CLI
+---
+
+## How-To Guides
+
+### Managing Gemini Profiles
+
+#### Add a new OAuth profile (interactive login)
 
 ```bash
-# Add an API key profile
-switcher codex add work-key --type apikey
-# Then add your key to the file shown in the output
-
-# Or import an existing auth.json
-switcher codex import ~/.codex/auth.json my-chatgpt
-
-# Switch
-switcher codex switch work-key
-
-# Export
-switcher codex export work-key ~/backups/
+switcher gemini add my-account --type oauth
+# Follow the OAuth flow in your browser, then import the generated credentials
 ```
 
-## Command Reference
-
-| Command | Description |
-|---|---|
-| `switcher` / `switcher status` | Show status dashboard |
-| `switcher gemini list` | List Gemini profiles |
-| `switcher gemini switch <n\|label>` | Switch to profile |
-| `switcher gemini next` | Rotate to next profile |
-| `switcher gemini add [label] [--type oauth\|apikey]` | Add profile |
-| `switcher gemini remove <n\|label>` | Remove profile |
-| `switcher gemini import <path> [label]` | Import credentials file |
-| `switcher gemini export <n\|label> [dest]` | Export profile credentials |
-| `switcher gemini health` | Check all profiles health |
-| `switcher codex list` | List Codex profiles |
-| `switcher codex switch <n\|label>` | Switch to profile |
-| `switcher codex next` | Rotate to next |
-| `switcher codex add [label] [--type apikey\|chatgpt]` | Add profile |
-| `switcher codex remove <n\|label>` | Remove profile |
-| `switcher codex import <path> [label]` | Import auth.json or API key |
-| `switcher codex export <n\|label> [dest]` | Export profile credentials |
-| `switcher config` | Show configuration |
-| `switcher config set <key> <value>` | Set config value |
-| `switcher install` | Install shell + hook integration |
-| `switcher uninstall` | Remove integration |
-| `switcher version` | Print version |
-
-## How Switching Works
-
-### Gemini (OAuth)
-1. Backs up current credentials
-2. Symlinks target profile's `oauth_creds.json` → `~/.gemini/oauth_creds.json`
-3. Writes to keyring (`gemini-cli-oauth` service)
-4. Clears MCP token cache
-
-### Gemini (API key)
-1. Writes `GEMINI_API_KEY` to `env.sh`
-2. Shell wrapper sources `env.sh` before each `gemini` invocation
-3. No restart needed
-
-### Codex (API key)
-1. Symlinks `auth.json` → `~/.codex/auth.json`
-2. Writes `OPENAI_API_KEY` to `env.sh`
-
-### Codex (ChatGPT OAuth)
-1. Symlinks `auth.json` → `~/.codex/auth.json`
-2. Codex reads tokens from file directly
-
-## Auto-Rotation (Gemini)
-
-When enabled, Gemini CLI hooks automatically detect quota errors and rotate to the next profile:
+#### Add an API key profile
 
 ```bash
-# Enable auto-rotation
-switcher config set auto_rotate.enabled true
+switcher gemini add my-api-key --type apikey
+# The command creates a profile directory — add your API key to the file shown in output
+```
 
-# Set max retries per session (default: 3)
+#### Switch between profiles
+
+```bash
+# By label
+switcher gemini switch work
+
+# By index number (shown in `list`)
+switcher gemini switch 2
+
+# Rotate to the next profile in order
+switcher gemini next
+```
+
+#### Remove a profile
+
+```bash
+switcher gemini remove personal
+switcher gemini remove 3
+```
+
+### Managing Codex Profiles
+
+#### Add an API key profile
+
+```bash
+switcher codex add work-key --type apikey
+# Add your OPENAI_API_KEY to the file shown in output
+```
+
+#### Import an existing auth.json
+
+```bash
+switcher codex import ~/.codex/auth.json my-chatgpt
+```
+
+#### Switch and rotate
+
+```bash
+switcher codex switch work-key
+switcher codex next
+```
+
+### Import & Export Profiles
+
+#### Export a profile to a file
+
+```bash
+# Export by label — writes to current directory
+switcher gemini export work
+
+# Export to a specific path
+switcher gemini export work ~/backups/gemini-work.json
+
+# Export by index number
+switcher gemini export 1 ~/backups/
+```
+
+#### Import a profile from a file
+
+```bash
+# Import with a custom label
+switcher gemini import /path/to/oauth_creds.json work-account
+
+# Import with auto-detected label
+switcher codex import /path/to/auth.json
+```
+
+The importer auto-detects the auth type (OAuth vs API key) from the file contents.
+
+### Cross-Machine Profile Transfer
+
+You can export profiles on one machine and import them on another:
+
+```bash
+# ── Machine A ──
+switcher gemini export work /tmp/work-creds.json
+
+# Transfer the file securely (scp, USB, etc.)
+scp /tmp/work-creds.json user@machine-b:/tmp/
+
+# ── Machine B ──
+switcher gemini import /tmp/work-creds.json work
+```
+
+**What transfers:**
+- ✅ OAuth credentials (`oauth_creds.json` with refresh tokens)
+- ✅ API keys (`api_key.txt` or `auth.json`)
+
+**What does NOT transfer:**
+- ❌ Profile metadata (label, notes, health status — regenerated on import)
+- ❌ Keyring entries (re-created automatically on first switch)
+
+**Security notes:**
+- Exported files contain **plaintext credentials** — transfer securely and delete intermediate files
+- OAuth refresh tokens may expire or be device-bound; re-authenticate if needed after import
+
+### Auto-Rotation (Gemini)
+
+Auto-rotation uses Gemini CLI's hook system to detect quota exhaustion and automatically switch to the next available profile.
+
+#### Enable auto-rotation
+
+```bash
+switcher config set auto_rotate.enabled true
+```
+
+#### Configure rotation behavior
+
+```bash
+# Maximum retry attempts per session (default: 3)
 switcher config set auto_rotate.max_retries 3
 
-# Set quota threshold for proactive switching (default: 10%)
+# Quota threshold percentage for proactive switching (default: 10)
 switcher config set auto_rotate.threshold 10
+
+# Rotation strategy: "conservative" (default) or "gemini3-first"
+switcher config set auto_rotate.strategy conservative
+
+# Cache quota check results for N minutes (default: 5)
+switcher config set auto_rotate.cache_minutes 5
+
+# Enable proactive pre-check before each request (default: true)
+switcher config set auto_rotate.pre_check true
 ```
 
-The **AfterAgent** hook detects "Resource exhausted" / "429" errors and triggers `switcher gemini next`. The **BeforeAgent** hook proactively checks quota via Google's API and switches before hitting limits.
+#### How it works
 
-## Configuration
+1. **AfterAgent hook** — runs after each Gemini CLI response. Detects "Resource exhausted" / HTTP 429 errors and triggers `switcher gemini next`.
+2. **BeforeAgent hook** — runs before each request. Proactively checks remaining quota via Google's API and switches profiles before hitting limits.
 
-Config stored in `~/.config/cli-switcher/config.toml`:
+Hooks are registered in `~/.gemini/settings.json` by `switcher install`.
+
+### Slash Commands
+
+`switcher install` configures the following CLI-native slash commands:
+
+- **Gemini CLI**
+  - `/change` → rotate to the next Gemini profile (runs `switcher gemini next`)
+  - Command file: `~/.gemini/commands/change.toml`
+- **Codex CLI**
+  - No custom slash commands are installed by `cli-switcher` currently.
+  - Use regular commands instead (for example: `sw codex next`).
+
+### Health Checks
+
+Validate that your profiles' credentials are still working:
+
+```bash
+# Check all Gemini profiles
+switcher gemini health
+
+# Check all Codex profiles
+switcher codex health
+```
+
+Health checks verify:
+- **OAuth tokens** — test refresh token validity against the provider's token endpoint
+- **API keys** — make a lightweight API call to confirm the key is active
+- **Status values** — `healthy`, `expired`, `invalid`, `rate_limited`, `unknown`
+
+### Configuration
+
+All configuration is stored in `~/.config/cli-switcher/config.toml`:
 
 ```toml
 [general]
-log_level = "info"
+log_level = "info"          # debug, info, warning, error
 
 [auto_rotate]
 enabled = false
 max_retries = 3
 threshold = 10
-strategy = "conservative"  # or "gemini3-first"
+strategy = "conservative"   # or "gemini3-first"
 cache_minutes = 5
 pre_check = true
 ```
 
+#### View and modify config
+
+```bash
+# Show all configuration
+switcher config
+
+# Get a specific value
+switcher config get general.log_level
+
+# Set a value
+switcher config set general.log_level debug
+```
+
+---
+
+## Command Reference
+
+### Global Commands
+
+| Command | Description |
+|---|---|
+| `switcher` or `switcher status` | Show status dashboard for all CLIs |
+| `switcher config` | Show current configuration |
+| `switcher config set <key> <value>` | Set a config value |
+| `switcher install` | Install shell integration, hooks, and bin symlink |
+| `switcher uninstall` | Remove all integration |
+| `switcher version` | Print version |
+
+### Gemini Commands
+
+| Command | Description |
+|---|---|
+| `switcher gemini list` | List all Gemini profiles with status |
+| `switcher gemini switch <n\|label>` | Switch to a profile by index or label |
+| `switcher gemini next` | Rotate to the next profile |
+| `switcher gemini add [label] [--type oauth\|apikey]` | Create a new empty profile |
+| `switcher gemini remove <n\|label>` | Delete a profile |
+| `switcher gemini import <path> [label]` | Import credentials from a file |
+| `switcher gemini export <n\|label> [dest]` | Export profile credentials to a file |
+| `switcher gemini health` | Run health checks on all profiles |
+
+### Codex Commands
+
+| Command | Description |
+|---|---|
+| `switcher codex list` | List all Codex profiles with status |
+| `switcher codex switch <n\|label>` | Switch to a profile by index or label |
+| `switcher codex next` | Rotate to the next profile |
+| `switcher codex add [label] [--type apikey\|chatgpt]` | Create a new empty profile |
+| `switcher codex remove <n\|label>` | Delete a profile |
+| `switcher codex import <path> [label]` | Import auth.json or API key file |
+| `switcher codex export <n\|label> [dest]` | Export profile credentials to a file |
+
+---
+
+## How Switching Works
+
+### Gemini — OAuth Profiles
+1. Creates an atomic symlink: `~/.gemini/oauth_creds.json` → profile directory
+2. Writes credentials to the OS keyring (service: `gemini-cli-oauth`, key: `main-account`)
+3. Deletes `~/.gemini/mcp-oauth-tokens.json` (token cache) to avoid stale sessions
+4. Next Gemini CLI invocation picks up the new credentials immediately
+
+### Gemini — API Key Profiles
+1. Writes `GEMINI_API_KEY` and `GOOGLE_API_KEY` to `~/.config/cli-switcher/env.sh`
+2. Shell wrapper sources `env.sh` before launching `gemini`
+3. No restart needed — takes effect on next invocation
+
+### Codex — API Key Profiles
+1. Creates an atomic symlink: `~/.codex/auth.json` → profile directory
+2. Writes `OPENAI_API_KEY` to `env.sh`
+3. Shell wrapper sources `env.sh` before launching `codex`
+
+### Codex — ChatGPT OAuth Profiles
+1. Creates an atomic symlink: `~/.codex/auth.json` → profile directory
+2. Codex CLI reads tokens from the file directly
+3. May require a Codex restart for ChatGPT OAuth (account-ID-gated `reload()`)
+
+---
+
 ## Project Structure
 
 ```
-switcher/
-├── cli.py              # Argument parsing, command routing
-├── config.py           # TOML config management
-├── state.py            # Active profile state (JSON)
-├── ui.py               # Terminal colors, tables, dashboard
-├── utils.py            # XDG paths, logging, file locking
-├── errors.py           # Exception hierarchy
-├── health.py           # Token validation for all auth types
-├── installer.py        # Shell RC, hooks, bin symlink
-├── profiles/
-│   ├── base.py         # Abstract ProfileManager
-│   ├── gemini.py       # Gemini profile operations
-│   └── codex.py        # Codex profile operations
-├── auth/
-│   ├── keyring_backend.py  # Keyring CRUD with fallback
-│   ├── gemini_auth.py      # Gemini credential handling
-│   └── codex_auth.py       # Codex credential handling
-└── hooks/
-    ├── gemini_after_agent.py   # Quota error detection
-    └── gemini_before_agent.py  # Proactive quota check
+gemini-switcher/
+├── main.py                 # Direct-run entry point
+├── pyproject.toml           # Project metadata and dependencies
+├── docs/
+│   └── spec.md             # Full technical specification
+├── switcher/
+│   ├── __init__.py
+│   ├── cli.py              # Argument parsing, command routing
+│   ├── config.py           # TOML config management
+│   ├── state.py            # Active profile state (JSON, file-locked)
+│   ├── ui.py               # Terminal colors, tables, dashboard
+│   ├── utils.py            # XDG paths, logging, file locking, atomic symlinks
+│   ├── errors.py           # Custom exception hierarchy
+│   ├── health.py           # Token/key validation for all auth types
+│   ├── installer.py        # Shell RC injection, hooks, bin symlinks
+│   ├── profiles/
+│   │   ├── base.py         # Abstract ProfileManager
+│   │   ├── gemini.py       # Gemini profile operations
+│   │   └── codex.py        # Codex profile operations
+│   ├── auth/
+│   │   ├── keyring_backend.py  # Keyring CRUD with file fallback
+│   │   ├── gemini_auth.py      # Gemini credential activation
+│   │   └── codex_auth.py       # Codex credential activation
+│   └── hooks/
+│       ├── gemini_after_agent.py   # Post-response quota error detection
+│       └── gemini_before_agent.py  # Pre-request proactive quota check
+└── tests/                  # Test suite (pytest)
 ```
 
-## Development
+### Key File Paths
+
+| Path | Purpose |
+|---|---|
+| `~/.config/cli-switcher/config.toml` | User preferences |
+| `~/.config/cli-switcher/state.json` | Active profiles, rotation state |
+| `~/.config/cli-switcher/env.sh` | Exported API key environment variables |
+| `~/.config/cli-switcher/profiles/` | Profile credential storage |
+| `~/.config/cli-switcher/logs/switcher.log` | Application log |
+| `~/.gemini/oauth_creds.json` | Symlinked by switcher |
+| `~/.gemini/settings.json` | Gemini hooks registered here |
+| `~/.codex/auth.json` | Symlinked by switcher |
+
+---
+
+## Contributing
+
+Contributions are welcome! Here's how to get started.
+
+### Setting Up the Development Environment
 
 ```bash
+# Clone and enter the repository
+git clone https://github.com/your-user/gemini-switcher.git
+cd gemini-switcher
+
+# Create a virtual environment
+python3 -m venv .venv
 source .venv/bin/activate
 
-# Lint
-ruff check switcher/
-ruff format --check switcher/
-
-# Run directly
-python main.py status
-python main.py gemini list
+# Install in editable mode with dev dependencies
+pip install -e ".[dev]"
 ```
+
+### Running Tests
+
+```bash
+# Run the full test suite
+pytest
+
+# Run a specific test file
+pytest tests/test_config.py -v
+
+# Run with coverage
+pytest --cov=switcher --cov-report=term-missing
+```
+
+### Linting and Formatting
+
+```bash
+# Check for lint issues
+ruff check switcher/ tests/
+
+# Auto-fix lint issues
+ruff check --fix switcher/ tests/
+
+# Check formatting
+ruff format --check switcher/ tests/
+
+# Auto-format
+ruff format switcher/ tests/
+```
+
+### Type Checking
+
+```bash
+mypy switcher/
+```
+
+### Code Style Guidelines
+
+- **Python 3.10+** — use `from __future__ import annotations` for modern union syntax
+- **Ruff** for linting and formatting (line-length 88; rules: E, F, W, I, B, UP, RUF, SIM, TCH)
+- **mypy --strict** for type checking
+- `pathlib.Path` for all filesystem paths — never raw strings
+- `dataclasses.dataclass(slots=True)` for structured data
+- Google-style docstrings (`Args:`, `Returns:`, `Raises:`)
+- `argparse` for CLI — no third-party CLI frameworks
+
+### Testing Conventions
+
+- **Never** touch real `~/.gemini/`, `~/.codex/`, or the OS keyring in tests
+- Use `tmp_path` fixtures and `mock_keyring` for isolation
+- Patch `switcher.utils.get_config_dir()` / `get_gemini_dir()` / `get_codex_dir()` to return temp paths
+- Mock HTTP calls (`requests.post` / `requests.get`) for health checks and quota APIs
+- Target: **≥80% line coverage**
+
+### Submitting Changes
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/my-feature`
+3. Make your changes with clear, atomic commits
+4. Ensure all checks pass: `ruff check && ruff format --check && mypy switcher/ && pytest`
+5. Push and open a pull request against `main`
+
+### Reporting Issues
+
+- Use GitHub Issues to report bugs or request features
+- Include your Python version, OS, and the output of `switcher version`
+- For bugs, include the relevant log output from `~/.config/cli-switcher/logs/switcher.log`
+
+---
 
 ## License
 
-MIT
+This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
