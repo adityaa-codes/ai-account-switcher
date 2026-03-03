@@ -23,9 +23,65 @@ logger = logging.getLogger("switcher.auth.gemini")
 # Gemini CLI's own keyring coordinates
 GEMINI_KEYRING_SERVICE = "gemini-cli-oauth"
 GEMINI_KEYRING_KEY = "main-account"
+GOOGLE_ACCOUNTS_FILE = "google_accounts.json"
 
 # Switcher's keyring namespace for API keys
 SWITCHER_GEMINI_SERVICE = "cli-switcher-gemini"
+
+
+def _oauth_payload_has_token(payload: dict[str, Any]) -> bool:
+    """Return True when oauth payload contains an access or refresh token."""
+    token = payload.get("token", payload)
+    if not isinstance(token, dict):
+        return False
+
+    return bool(
+        token.get("refreshToken")
+        or token.get("refresh_token")
+        or token.get("accessToken")
+        or token.get("access_token")
+    )
+
+
+def _read_json_object(path: Path) -> dict[str, Any] | None:
+    """Read a JSON object from disk, returning None when invalid/unreadable."""
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _sync_oauth_from_keyring_blob(profile_dir: Path, keyring_blob: str) -> bool:
+    """Write oauth_creds.json from a HybridTokenStorage keyring JSON blob."""
+    try:
+        keyring_json = json.loads(keyring_blob)
+    except json.JSONDecodeError:
+        return False
+    if not isinstance(keyring_json, dict):
+        return False
+
+    oauth_creds = convert_from_keyring_format(keyring_json)
+    if not _oauth_payload_has_token(oauth_creds):
+        return False
+
+    creds_file = profile_dir / "oauth_creds.json"
+    creds_file.write_text(json.dumps(oauth_creds, indent=2) + "\n", encoding="utf-8")
+    return True
+
+
+def _restore_oauth_from_profile_keyring(profile_dir: Path) -> bool:
+    """Recover oauth_creds.json from profile-local keyring backup when available."""
+    keyring_file = profile_dir / "keyring_creds.json"
+    if not keyring_file.exists():
+        return False
+
+    try:
+        keyring_blob = keyring_file.read_text(encoding="utf-8")
+    except OSError:
+        return False
+
+    return _sync_oauth_from_keyring_blob(profile_dir, keyring_blob)
 
 
 def backup_current_credentials(profile_label: str) -> None:
@@ -46,6 +102,14 @@ def backup_current_credentials(profile_label: str) -> None:
         target.write_text(content, encoding="utf-8")
         logger.debug("Backed up oauth_creds.json for %s", profile_label)
 
+    # Backup cached Google account identity shown in Gemini UI.
+    accounts_path = get_gemini_dir() / GOOGLE_ACCOUNTS_FILE
+    if accounts_path.exists():
+        target = profile_dir / GOOGLE_ACCOUNTS_FILE
+        content = accounts_path.read_text(encoding="utf-8")
+        target.write_text(content, encoding="utf-8")
+        logger.debug("Backed up %s for %s", GOOGLE_ACCOUNTS_FILE, profile_label)
+
     # Backup keyring credentials
     try:
         keyring_data = keyring_read(GEMINI_KEYRING_SERVICE, GEMINI_KEYRING_KEY)
@@ -53,6 +117,23 @@ def backup_current_credentials(profile_label: str) -> None:
             keyring_file = profile_dir / "keyring_creds.json"
             keyring_file.write_text(keyring_data, encoding="utf-8")
             logger.debug("Backed up keyring credentials for %s", profile_label)
+
+            # When Gemini stores tokens in keyring mode, oauth_creds.json can be
+            # missing/stale. Persist a usable oauth_creds.json for future switches.
+            creds_file = profile_dir / "oauth_creds.json"
+            file_payload = (
+                _read_json_object(creds_file) if creds_file.exists() else None
+            )
+            has_file_tokens = bool(
+                file_payload and _oauth_payload_has_token(file_payload)
+            )
+            if not has_file_tokens and _sync_oauth_from_keyring_blob(
+                profile_dir, keyring_data
+            ):
+                logger.info(
+                    "Recovered oauth_creds.json from keyring backup for %s",
+                    profile_label,
+                )
     except KeyringError:
         logger.debug("No keyring credentials to backup for %s", profile_label)
 
@@ -70,8 +151,26 @@ def activate_oauth_profile(profile_dir: Path, storage_mode: str = "auto") -> Non
         storage_mode: 'keyring', 'file', or 'auto'.
     """
     creds_file = profile_dir / "oauth_creds.json"
-    if not creds_file.exists():
-        raise AuthError(f"Missing oauth_creds.json in {profile_dir}")
+    creds_payload = _read_json_object(creds_file) if creds_file.exists() else None
+    has_valid_file_tokens = bool(
+        creds_payload and _oauth_payload_has_token(creds_payload)
+    )
+    if not has_valid_file_tokens and _restore_oauth_from_profile_keyring(profile_dir):
+        creds_payload = _read_json_object(creds_file)
+        has_valid_file_tokens = bool(
+            creds_payload and _oauth_payload_has_token(creds_payload)
+        )
+        logger.info(
+            "Recovered oauth_creds.json from profile keyring backup for %s",
+            profile_dir.name,
+        )
+
+    if not creds_file.exists() or not has_valid_file_tokens:
+        raise AuthError(
+            f"Missing or invalid oauth_creds.json in {profile_dir}. "
+            "Run Gemini OAuth enrollment for this profile."
+        )
+    assert creds_payload is not None
 
     gemini_dir = get_gemini_dir()
     gemini_dir.mkdir(parents=True, exist_ok=True)
@@ -81,12 +180,21 @@ def activate_oauth_profile(profile_dir: Path, storage_mode: str = "auto") -> Non
     atomic_symlink(creds_file, target)
     logger.info("Symlinked oauth_creds.json → %s", creds_file)
 
+    # Keep Gemini's displayed account identity in sync with the active profile.
+    profile_accounts = profile_dir / GOOGLE_ACCOUNTS_FILE
+    accounts_target = gemini_dir / GOOGLE_ACCOUNTS_FILE
+    if profile_accounts.exists():
+        atomic_symlink(profile_accounts, accounts_target)
+        logger.info("Symlinked %s → %s", GOOGLE_ACCOUNTS_FILE, profile_accounts)
+    else:
+        accounts_target.unlink(missing_ok=True)
+        logger.debug("Removed stale %s", GOOGLE_ACCOUNTS_FILE)
+
     # 2. Update keyring
     mode = detect_keyring_mode(storage_mode)
     if mode == "keyring":
         try:
-            creds = json.loads(creds_file.read_text(encoding="utf-8"))
-            keyring_json = convert_to_keyring_format(creds)
+            keyring_json = convert_to_keyring_format(creds_payload)
             keyring_delete(GEMINI_KEYRING_SERVICE, GEMINI_KEYRING_KEY)
             keyring_write(
                 GEMINI_KEYRING_SERVICE, GEMINI_KEYRING_KEY, json.dumps(keyring_json)
