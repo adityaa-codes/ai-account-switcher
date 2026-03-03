@@ -61,6 +61,89 @@ def _profile_has_oauth_creds(profile: Profile) -> bool:
     )
 
 
+def _recover_profile_oauth_from_keyring(profile: Profile) -> bool:
+    """Recover oauth_creds.json from Gemini keyring entry when available."""
+    from switcher.auth.gemini_auth import (
+        GEMINI_KEYRING_KEY,
+        GEMINI_KEYRING_SERVICE,
+        convert_from_keyring_format,
+    )
+    from switcher.auth.keyring_backend import keyring_read
+
+    try:
+        keyring_blob = keyring_read(GEMINI_KEYRING_SERVICE, GEMINI_KEYRING_KEY)
+    except Exception:
+        logger.debug("Could not read Gemini keyring entry", exc_info=True)
+        return False
+    if not keyring_blob:
+        return False
+
+    try:
+        keyring_payload = json.loads(keyring_blob)
+    except json.JSONDecodeError:
+        return False
+    if not isinstance(keyring_payload, dict):
+        return False
+
+    oauth_payload = convert_from_keyring_format(keyring_payload)
+    token = oauth_payload.get("token", oauth_payload)
+    if not isinstance(token, dict):
+        return False
+    has_tokens = bool(
+        token.get("refreshToken")
+        or token.get("refresh_token")
+        or token.get("accessToken")
+        or token.get("access_token")
+    )
+    if not has_tokens:
+        return False
+
+    creds_path = profile.path / "oauth_creds.json"
+    creds_path.write_text(json.dumps(oauth_payload, indent=2) + "\n", encoding="utf-8")
+    (profile.path / "keyring_creds.json").write_text(keyring_blob, encoding="utf-8")
+    logger.info(
+        "Recovered oauth_creds.json from keyring for profile '%s'", profile.label
+    )
+    return True
+
+
+def _recover_profile_oauth_from_profile_keyring_backup(profile: Profile) -> bool:
+    """Recover oauth_creds.json from profile-local keyring backup."""
+    from switcher.auth.gemini_auth import convert_from_keyring_format
+
+    keyring_path = profile.path / "keyring_creds.json"
+    if not keyring_path.exists():
+        return False
+
+    try:
+        keyring_payload = json.loads(keyring_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(keyring_payload, dict):
+        return False
+
+    oauth_payload = convert_from_keyring_format(keyring_payload)
+    token = oauth_payload.get("token", oauth_payload)
+    if not isinstance(token, dict):
+        return False
+    has_tokens = bool(
+        token.get("refreshToken")
+        or token.get("refresh_token")
+        or token.get("accessToken")
+        or token.get("access_token")
+    )
+    if not has_tokens:
+        return False
+
+    creds_path = profile.path / "oauth_creds.json"
+    creds_path.write_text(json.dumps(oauth_payload, indent=2) + "\n", encoding="utf-8")
+    logger.info(
+        "Recovered oauth_creds.json from profile keyring backup for '%s'",
+        profile.label,
+    )
+    return True
+
+
 def _run_gemini_oauth_enrollment(profile: Profile) -> bool:
     """Launch Gemini CLI OAuth flow and capture creds into the profile."""
     from switcher.auth.gemini_auth import (
@@ -100,6 +183,9 @@ def _run_gemini_oauth_enrollment(profile: Profile) -> bool:
         print_warning(
             f"Gemini exited with code {result.returncode}. Checking credentials..."
         )
+
+    if not _profile_has_oauth_creds(profile):
+        _recover_profile_oauth_from_keyring(profile)
 
     if not _profile_has_oauth_creds(profile):
         print_warning(f"No OAuth credentials captured for '{profile.label}'.")
@@ -160,17 +246,18 @@ def cmd_switch(args: argparse.Namespace, cli_name: str) -> None:
     mgr = _get_manager(cli_name)
     profile = mgr.get_profile(args.target)
 
-    if (
-        cli_name == "gemini"
-        and profile.auth_type == "oauth"
-        and not _profile_has_oauth_creds(profile)
-    ):
-        print_warning(f"Profile '{profile.label}' has no OAuth credentials yet.")
-        if not confirm("Start Gemini OAuth flow now?"):
-            print_info("Cancelled.")
-            return
-        if not _run_gemini_oauth_enrollment(profile):
-            return
+    if cli_name == "gemini" and profile.auth_type == "oauth":
+        if not _profile_has_oauth_creds(profile):
+            _recover_profile_oauth_from_profile_keyring_backup(profile)
+        if not _profile_has_oauth_creds(profile):
+            _recover_profile_oauth_from_keyring(profile)
+        if not _profile_has_oauth_creds(profile):
+            print_warning(f"Profile '{profile.label}' has no OAuth credentials yet.")
+            if not confirm("Start Gemini OAuth flow now?"):
+                print_info("Cancelled.")
+                return
+            if not _run_gemini_oauth_enrollment(profile):
+                return
 
     label = mgr.switch_to(profile.label)
     print_success(f"Switched {cli_name} to: {label}")
