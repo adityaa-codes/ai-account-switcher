@@ -134,6 +134,7 @@ def ensure_dirs() -> None:
         config / "profiles" / "gemini",
         config / "profiles" / "codex",
         config / "hooks",
+        config / "cache",
         config / "logs",
     ]
     for d in dirs:
