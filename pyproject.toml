@@ -7,7 +7,7 @@ packages = ["switcher"]
 
 [project]
 name = "cli-switcher"
-version = "0.1.0"
+version = "0.1.1"
 description = "Unified multi-account manager for Gemini CLI and Codex CLI on Ubuntu/Linux"
 readme = "README.md"
 license = "MIT"
