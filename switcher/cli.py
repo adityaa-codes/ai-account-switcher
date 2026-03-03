@@ -375,10 +375,52 @@ def cmd_export(args: argparse.Namespace, cli_name: str) -> None:
     print_success(f"Exported to: {out}")
 
 
+def _quota_bar(pct: float, width: int = 10) -> str:
+    """Render a Unicode progress bar for quota remaining percentage.
+
+    Args:
+        pct: Percentage remaining (0-100).
+        width: Bar character width.
+
+    Returns:
+        A string like '████████░░' representing the fill level.
+    """
+    filled = round(max(0.0, min(100.0, pct)) / 100 * width)
+    return "█" * filled + "░" * (width - filled)
+
+
+def _format_reset_date(iso_str: str) -> str:
+    """Format an ISO 8601 reset timestamp into a human-readable string.
+
+    Args:
+        iso_str: ISO 8601 date/datetime string.
+
+    Returns:
+        Formatted string like 'Apr 1 2025', or the original string on error.
+    """
+    from datetime import datetime, timezone
+
+    try:
+        dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00")).astimezone(
+            timezone.utc
+        )
+        return dt.strftime("%b %-d %Y")
+    except (ValueError, AttributeError):
+        return iso_str
+
+
 def cmd_health(_args: argparse.Namespace, cli_name: str) -> None:
-    """Check health of all profiles."""
-    from switcher.health import check_all_profiles
+    """Check health of all profiles, including quota usage for Gemini OAuth."""
+    from switcher.health import ProfileQuotaInfo, check_all_profiles
     from switcher.ui import print_table
+
+    _HEALTH_ICONS: dict[str, str] = {
+        "valid": "✅",
+        "expiring": "⚠️ ",
+        "expired": "❌",
+        "revoked": "🚫",
+        "unknown": "❓",
+    }
 
     mgr = _get_manager(cli_name)
     profiles = mgr.list_profiles()
@@ -389,13 +431,45 @@ def cmd_health(_args: argparse.Namespace, cli_name: str) -> None:
     print_info(f"Checking {cli_name} profiles...")
     results = check_all_profiles(cli_name, profiles)
 
-    headers = ["#", "Label", "Status", "Detail"]
+    headers = ["#", "Label", "Email", "Status", "Detail"]
     rows: list[list[str]] = []
-    for i, (profile, status, detail) in enumerate(results, 1):
-        rows.append([f"{i:02d}.", profile.label, status, detail])
+    for i, (profile, status, detail, quota_info) in enumerate(results, 1):
+        email = ""
+        if quota_info and quota_info.email:
+            email = quota_info.email
+        elif profile.meta.get("email"):
+            email = str(profile.meta["email"])
+        icon = _HEALTH_ICONS.get(status, "❓")
+        rows.append([f"{i:02d}.", profile.label, email, f"{icon} {status}", detail])
 
     print()
     print_table(headers, rows)
+
+    # Quota section (Gemini OAuth only)
+    quota_results = [
+        (p, qi)
+        for p, _s, _d, qi in results
+        if qi is not None and (qi.quotas or qi.error)
+    ]
+    if not quota_results:
+        return
+
+    print("\n  Quota Usage")
+    print(f"  {'─' * 62}")
+    for profile, quota_info in quota_results:
+        assert isinstance(quota_info, ProfileQuotaInfo)
+        email_str = f"  ({quota_info.email})" if quota_info.email else ""
+        print(f"\n  {profile.label}{email_str}")
+        if quota_info.error and not quota_info.quotas:
+            print(f"    ⚠️  {quota_info.error}")
+            continue
+        for q in quota_info.quotas:
+            bar = _quota_bar(q.remaining_pct)
+            warn = " ⚠️" if q.remaining_pct < 20 else ""
+            reset_str = ""
+            if q.reset_at:
+                reset_str = f"  resets {_format_reset_date(str(q.reset_at))}"
+            print(f"    {q.model:<28} {bar}  {q.remaining_pct:5.1f}%{warn}{reset_str}")
 
 
 def cmd_config(args: argparse.Namespace) -> None:

@@ -7,6 +7,7 @@ import logging
 import re
 import shutil
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -43,6 +44,31 @@ _OPENAI_MODELS_URL = "https://api.openai.com/v1/models"
 _OPENAI_TOKEN_URL = "https://auth.openai.com/oauth/token"
 
 _TIMEOUT = 10  # seconds
+
+# Code Assist quota endpoints (undocumented Google APIs)
+_LOAD_CODE_ASSIST_URL = "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist"
+_RETRIEVE_QUOTA_URL = "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota"
+
+# Google userinfo endpoint for email lookup
+_GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
+
+
+@dataclass(slots=True)
+class QuotaEntry:
+    """Quota usage for a single model."""
+
+    model: str
+    remaining_pct: float  # 0-100
+    reset_at: str | None  # ISO 8601 string or None
+
+
+@dataclass(slots=True)
+class ProfileQuotaInfo:
+    """Quota and identity information for a Gemini OAuth profile."""
+
+    email: str | None
+    quotas: list[QuotaEntry] = field(default_factory=list)
+    error: str | None = None
 
 
 def _discover_gemini_oauth_client() -> tuple[str, str] | None:
@@ -366,24 +392,198 @@ def check_profile(cli_name: str, profile: Profile) -> tuple[str, str]:
     return "unknown", f"Unknown auth type: {auth_type}"
 
 
+def _read_access_token(profile_dir: Path) -> str | None:
+    """Read cached access token from oauth_creds.json, if present.
+
+    Args:
+        profile_dir: Path to the profile directory.
+
+    Returns:
+        Access token string, or None if not found.
+    """
+    creds_file = profile_dir / "oauth_creds.json"
+    if not creds_file.exists():
+        return None
+    try:
+        data: dict[str, Any] = json.loads(creds_file.read_text(encoding="utf-8"))
+        if "access_token" in data:
+            return str(data["access_token"]) or None
+        token = data.get("token", {})
+        if isinstance(token, dict):
+            return str(token.get("accessToken", "")) or None
+    except (json.JSONDecodeError, OSError):
+        pass
+    return None
+
+
+def _refresh_access_token(profile_dir: Path) -> str | None:
+    """Refresh Gemini OAuth credentials and return a fresh access token.
+
+    Falls back to the cached access token if refresh is not possible.
+
+    Args:
+        profile_dir: Path to the profile directory.
+
+    Returns:
+        A valid access token string, or None on failure.
+    """
+    creds_file = profile_dir / "oauth_creds.json"
+    if not creds_file.exists():
+        return _read_access_token(profile_dir)
+    try:
+        data: dict[str, Any] = json.loads(creds_file.read_text(encoding="utf-8"))
+        token = data.get("token", data)
+        if isinstance(token, dict):
+            refresh_token = token.get("refreshToken") or token.get("refresh_token")
+        else:
+            refresh_token = None
+        if not refresh_token:
+            return _read_access_token(profile_dir)
+
+        for client_id, client_secret in _google_oauth_clients():
+            resp = requests.post(
+                _GOOGLE_TOKEN_URL,
+                data={
+                    "grant_type": "refresh_token",
+                    "refresh_token": refresh_token,
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                },
+                timeout=_TIMEOUT,
+            )
+            if resp.status_code == 200:
+                return str(resp.json().get("access_token", "")) or None
+    except (requests.RequestException, OSError, json.JSONDecodeError):
+        pass
+    return _read_access_token(profile_dir)
+
+
+def _fetch_google_email(access_token: str) -> str | None:
+    """Fetch the Google account email via the userinfo endpoint.
+
+    Args:
+        access_token: A valid Google OAuth access token.
+
+    Returns:
+        Email string, or None if unavailable.
+    """
+    try:
+        resp = requests.get(
+            _GOOGLE_USERINFO_URL,
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=_TIMEOUT,
+        )
+        if resp.status_code == 200:
+            email = resp.json().get("email", "")
+            return str(email) if email else None
+    except requests.RequestException:
+        pass
+    return None
+
+
+def fetch_quota_info(profile: Profile) -> ProfileQuotaInfo:
+    """Fetch quota usage and account email for a Gemini OAuth profile.
+
+    Calls Google's undocumented Code Assist quota API.  On failure, returns
+    a ProfileQuotaInfo with the error field set.
+
+    Args:
+        profile: A Gemini OAuth Profile object.
+
+    Returns:
+        ProfileQuotaInfo with email, per-model quotas, and any error string.
+    """
+    access_token = _refresh_access_token(profile.path)
+    if not access_token:
+        return ProfileQuotaInfo(
+            email=None, quotas=[], error="Cannot obtain access token"
+        )
+
+    email = _fetch_google_email(access_token)
+
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
+    }
+    try:
+        resp = requests.post(
+            _LOAD_CODE_ASSIST_URL,
+            headers=headers,
+            json={"supportedFeatures": ["GEMINI_CLI"]},
+            timeout=_TIMEOUT,
+        )
+        if resp.status_code != 200:
+            return ProfileQuotaInfo(
+                email=email,
+                quotas=[],
+                error=f"loadCodeAssist HTTP {resp.status_code}",
+            )
+
+        project_id = str(resp.json().get("cloudaicompanionProject", ""))
+
+        resp = requests.post(
+            _RETRIEVE_QUOTA_URL,
+            headers=headers,
+            json={"cloudaicompanionProject": project_id},
+            timeout=_TIMEOUT,
+        )
+        if resp.status_code != 200:
+            return ProfileQuotaInfo(
+                email=email,
+                quotas=[],
+                error=f"retrieveUserQuota HTTP {resp.status_code}",
+            )
+
+        entries: list[QuotaEntry] = []
+        for q in resp.json().get("userQuota", []):
+            model = str(q.get("modelName", "unknown"))
+            remaining_pct = float(q.get("remainingFraction", 1.0)) * 100
+            # Try several possible field names for reset time
+            reset_at = (
+                q.get("currentPeriodEnd")
+                or q.get("periodEnd")
+                or q.get("resetAt")
+                or q.get("quotaRefreshAt")
+            )
+            entries.append(
+                QuotaEntry(model=model, remaining_pct=remaining_pct, reset_at=reset_at)
+            )
+
+        return ProfileQuotaInfo(email=email, quotas=entries, error=None)
+
+    except requests.RequestException as exc:
+        return ProfileQuotaInfo(email=email, quotas=[], error=f"Network error: {exc}")
+
+
 def check_all_profiles(
     cli_name: str, profiles: list[Profile]
-) -> list[tuple[Profile, str, str]]:
+) -> list[tuple[Profile, str, str, ProfileQuotaInfo | None]]:
     """Run health checks on all profiles and update meta.json.
+
+    For Gemini OAuth profiles also fetches quota usage and account email.
 
     Args:
         cli_name: 'gemini' or 'codex'.
         profiles: List of Profile objects to check.
 
     Returns:
-        List of (profile, status, detail) tuples.
+        List of (profile, status, detail, quota_info) tuples.
+        quota_info is None for non-OAuth or non-Gemini profiles.
     """
     from datetime import datetime, timezone
 
-    results: list[tuple[Profile, str, str]] = []
+    results: list[tuple[Profile, str, str, ProfileQuotaInfo | None]] = []
     for profile in profiles:
         logger.info("Checking %s/%s...", cli_name, profile.label)
         status, detail = check_profile(cli_name, profile)
+
+        # Fetch quota and email for Gemini OAuth profiles
+        auth_type = profile.meta.get("auth_type", profile.auth_type)
+        quota_info: ProfileQuotaInfo | None = None
+        if cli_name == "gemini" and auth_type == "oauth":
+            quota_info = fetch_quota_info(profile)
+            if quota_info.email:
+                profile.meta["email"] = quota_info.email
 
         # Update meta
         profile.meta["health_status"] = status
@@ -391,7 +591,7 @@ def check_all_profiles(
         profile.meta["last_health_check"] = datetime.now(timezone.utc).isoformat()
         save_meta(profile.path, profile.meta)
 
-        results.append((profile, status, detail))
+        results.append((profile, status, detail, quota_info))
         logger.info("  %s: %s — %s", profile.label, status, detail)
 
     return results
