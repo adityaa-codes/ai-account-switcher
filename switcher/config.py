@@ -17,7 +17,7 @@ from switcher.utils import file_lock, get_config_dir
 if sys.version_info >= (3, 11):
     import tomllib
 else:
-    import tomli as tomllib
+    import tomli as tomllib  # type: ignore[import-not-found]
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "general": {
@@ -27,6 +27,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "auto_rotate": {
         "enabled": False,
+        "pre_check": True,
         "strategy": "gemini3-first",
         "model_pattern": "gemini-3.*",
         "threshold_percent": 10,
