@@ -310,7 +310,7 @@ def generate_env_sh() -> None:
     state = load_state()
 
     # Check Gemini active profile for API key
-    gemini_active = state.get("active", {}).get("gemini")
+    gemini_active = state.get("gemini", {}).get("active_profile")
     if gemini_active:
         profile_dir = get_config_dir() / "profiles" / "gemini" / gemini_active
         api_key_file = profile_dir / "api_key.txt"
@@ -318,9 +318,10 @@ def generate_env_sh() -> None:
             key = api_key_file.read_text().strip()
             if key:
                 lines.append(f'export GEMINI_API_KEY="{key}"')
+                lines.append(f'export GOOGLE_API_KEY="{key}"')
 
     # Check Codex active profile for API key
-    codex_active = state.get("active", {}).get("codex")
+    codex_active = state.get("codex", {}).get("active_profile")
     if codex_active:
         profile_dir = get_config_dir() / "profiles" / "codex" / codex_active
         auth_file = profile_dir / "auth.json"
