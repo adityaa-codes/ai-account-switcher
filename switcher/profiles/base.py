@@ -37,7 +37,8 @@ def load_meta(profile_dir: Path) -> dict[str, Any]:
         return _default_meta(profile_dir.name)
     try:
         with meta_path.open("r", encoding="utf-8") as f:
-            return json.load(f)
+            data: dict[str, Any] = json.load(f)
+            return data
     except (json.JSONDecodeError, OSError):
         return _default_meta(profile_dir.name)
 

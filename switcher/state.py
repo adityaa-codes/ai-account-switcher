@@ -73,7 +73,8 @@ def get_active_profile(cli_name: str) -> str | None:
         Profile label string, or None if no profile is active.
     """
     state = load_state()
-    return state.get(cli_name, {}).get("active_profile")
+    result: str | None = state.get(cli_name, {}).get("active_profile")
+    return result
 
 
 def set_active_profile(cli_name: str, label: str) -> None:
