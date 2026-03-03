@@ -64,22 +64,23 @@ def _refresh_and_get_token(profile_dir: Path) -> str | None:
         if not refresh_token:
             return _get_access_token(profile_dir)
 
-        # Gemini CLI client credentials
-        resp = requests.post(
-            "https://oauth2.googleapis.com/token",
-            data={
-                "client_id": (
-                    "710733570747-4bm2qi30m3sj1e2t6ri1urlb80sqmnml"
-                    ".apps.googleusercontent.com"
-                ),
-                "client_secret": "GOCSPX-bwSFJu80JKsALpWxFjJnOk4R",
-                "refresh_token": refresh_token,
-                "grant_type": "refresh_token",
-            },
-            timeout=5,
-        )
-        if resp.status_code == 200:
-            return str(resp.json().get("access_token", ""))
+        # Try each known Gemini CLI OAuth client in order
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+        from switcher.health import _KNOWN_GOOGLE_OAUTH_CLIENTS
+
+        for client_id, client_secret in _KNOWN_GOOGLE_OAUTH_CLIENTS:
+            resp = requests.post(
+                "https://oauth2.googleapis.com/token",
+                data={
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "refresh_token": refresh_token,
+                    "grant_type": "refresh_token",
+                },
+                timeout=5,
+            )
+            if resp.status_code == 200:
+                return str(resp.json().get("access_token", ""))
     except Exception:
         pass
 
@@ -145,7 +146,8 @@ def _load_quota_cache(cache_file: Path) -> dict | None:  # type: ignore[type-arg
         cached_at = data.get("cached_at", 0)
         ttl = data.get("ttl", 300)  # 5 minutes default
         if time.time() - cached_at < ttl:
-            return data.get("quotas")
+            quotas: dict[str, object] | None = data.get("quotas")
+            return quotas
     except (json.JSONDecodeError, KeyError):
         pass
     return None
@@ -198,7 +200,7 @@ def main() -> None:
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
         from switcher.config import load_config
         from switcher.state import get_active_profile
-        from switcher.utils import config_dir
+        from switcher.utils import get_config_dir
 
         config = load_config()
         ar = config["auto_rotate"]
@@ -207,7 +209,7 @@ def main() -> None:
             _output({})
             return
 
-        threshold = ar.get("threshold", 10) / 100.0
+        threshold = ar.get("threshold_percent", 10) / 100.0
         strategy = ar.get("strategy", "conservative")
         cache_minutes = ar.get("cache_minutes", 5)
 
@@ -217,13 +219,13 @@ def main() -> None:
             _output({})
             return
 
-        profiles_dir = config_dir() / "profiles" / "gemini" / active
+        profiles_dir = get_config_dir() / "profiles" / "gemini" / active
         if not profiles_dir.exists():
             _output({})
             return
 
         # Check quota cache
-        cache_file = config_dir() / "cache" / "quota_gemini.json"
+        cache_file = get_config_dir() / "cache" / "quota_gemini.json"
         quotas = _load_quota_cache(cache_file)
 
         if quotas is None:
