@@ -183,18 +183,22 @@ class CodexProfileManager(ProfileManager):
         profile = self.add_profile(label, auth_type)
 
         if auth_type in ("apikey", "chatgpt"):
-            shutil.copy2(path, profile.path / "auth.json")
-        else:
-            # Plain API key text file → create proper auth.json
-            api_key = path.read_text(encoding="utf-8").strip()
-            auth_data = {
-                "OPENAI_API_KEY": api_key,
-                "tokens": None,
-                "last_refresh": None,
-            }
-            with (profile.path / "auth.json").open("w", encoding="utf-8") as f:
-                json.dump(auth_data, f, indent=2)
-                f.write("\n")
+            # Copy only if the source is already valid JSON; otherwise wrap in auth.json
+            try:
+                with path.open("r", encoding="utf-8") as _f:
+                    json.load(_f)
+                shutil.copy2(path, profile.path / "auth.json")
+            except (json.JSONDecodeError, OSError):
+                # Plain text API key — create a proper auth.json structure
+                api_key = path.read_text(encoding="utf-8").strip()
+                auth_data = {
+                    "OPENAI_API_KEY": api_key,
+                    "tokens": None,
+                    "last_refresh": None,
+                }
+                with (profile.path / "auth.json").open("w", encoding="utf-8") as f:
+                    json.dump(auth_data, f, indent=2)
+                    f.write("\n")
 
         profile.meta["auth_type"] = auth_type
         save_meta(profile.path, profile.meta)
