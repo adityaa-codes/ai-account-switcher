@@ -26,6 +26,8 @@ Switch between multiple Google Gemini and OpenAI Codex accounts instantly — no
   - [Import & Export Profiles](#import--export-profiles)
   - [Cross-Machine Profile Transfer](#cross-machine-profile-transfer)
   - [Auto-Rotation (Gemini)](#auto-rotation-gemini)
+  - [Live Quota Display](#live-quota-display)
+  - [Interactive Menu](#interactive-menu)
   - [Health Checks](#health-checks)
   - [Configuration](#configuration)
 - [Command Reference](#command-reference)
@@ -43,7 +45,9 @@ Switch between multiple Google Gemini and OpenAI Codex accounts instantly — no
 - **All auth types** — OAuth, API keys (Gemini), API keys, ChatGPT OAuth (Codex)
 - **Keyring integration** — writes to GNOME Keyring / KWallet with automatic file fallback for headless systems
 - **Health checks** — validate tokens and API keys before switching
-- **Auto-rotation** — Gemini hooks detect quota exhaustion and rotate profiles automatically
+- **Live quota display** — `switcher gemini quota` shows remaining quota per OAuth profile with visual progress bars
+- **Auto-rotation** — Gemini hooks detect quota exhaustion and rotate profiles automatically, with optional crash-safe handoff flag to skip redundant API calls
+- **Interactive menu** — `switcher gemini menu` launches a numbered TUI for profile management without memorising commands
 - **Shell integration** — `env.sh` sourced per invocation via shell wrappers and aliases
 - **Import/export** — move profiles between machines or back them up
 - **XDG compliant** — all state stored under `~/.config/ai-account-switcher/`
@@ -145,6 +149,11 @@ switcher gemini switch 2
 
 # Rotate to the next profile in order
 switcher gemini next
+
+# /change command — no target rotates, label/number switches directly
+switcher gemini change
+switcher gemini change personal
+switcher gemini change 2
 ```
 
 #### Remove a profile
@@ -257,21 +266,81 @@ switcher config set auto_rotate.cache_minutes 5
 
 # Enable proactive pre-check before each request (default: true)
 switcher config set auto_rotate.pre_check true
+
+# After rotating, instruct Gemini CLI to restart the agent (default: false)
+switcher config set auto_rotate.restart_on_switch true
 ```
 
 #### How it works
 
-1. **AfterAgent hook** — runs after each Gemini CLI response. Detects "Resource exhausted" / HTTP 429 errors and triggers `switcher gemini next`.
-2. **BeforeAgent hook** — runs before each request. Proactively checks remaining quota via Google's API and switches profiles before hitting limits.
+1. **AfterAgent hook** — runs after each Gemini CLI response. Detects "Resource exhausted" / HTTP 429 errors and triggers `switcher gemini next`. After rotating, writes a short-lived handoff flag so the next hook invocation skips its API call.
+2. **BeforeAgent hook** — runs before each request. Checks for the handoff flag first (skipping the API call if set); otherwise proactively checks remaining quota via Google's API and switches profiles before hitting limits.
 
 Hooks are registered in `~/.gemini/settings.json` by `switcher install`.
+
+### Live Quota Display
+
+View real-time quota remaining for all Gemini OAuth profiles:
+
+```bash
+switcher gemini quota
+```
+
+Sample output:
+
+```
+ℹ️  Fetching quota for 2 OAuth profile(s)...
+
+  ──────────────────────────────────────────────────────────────
+
+  work ●
+  (you@work.com)
+    gemini-2.0-flash          ████████████░░  85.3%
+
+  personal
+  (you@personal.com)
+    gemini-2.0-flash          ██░░░░░░░░░░░░  12.1% ⚠️  resets in 4 h
+```
+
+- `●` marks the active profile
+- `⚠️` appears when remaining quota is below 20 %
+- Only OAuth profiles are checked (API key profiles have no quota API)
+
+### Interactive Menu
+
+Launch a numbered TUI for profile management — useful when you don't remember the exact command:
+
+```bash
+switcher gemini menu
+# or
+switcher codex menu
+```
+
+```
+  Gemini Profile Manager
+  Active: work
+  ────────────────────────────────────
+   1)  List all profiles
+   2)  Switch to a profile
+   3)  Rotate to next profile
+   4)  Show live quota usage
+   5)  Check profile health
+   6)  Add a new profile
+   7)  Import credentials
+   8)  Toggle auto-rotate on/off
+   q)  Quit
+
+  Choice:
+```
+
+When stdin is not a TTY (e.g. piped or in a script), the menu prints a compact command reference instead of prompting.
 
 ### Slash Commands
 
 `switcher install` configures the following CLI-native slash commands:
 
 - **Gemini CLI**
-  - `/change` → rotate to the next Gemini profile (runs `switcher gemini next`)
+  - `/change` → alias for `switcher gemini change` — no argument rotates to next profile, a label or number switches directly
   - Command file: `~/.gemini/commands/change.toml`
 - **Codex CLI**
   - No custom slash commands are installed by `ai-account-switcher` currently.
@@ -309,6 +378,7 @@ threshold = 10
 strategy = "conservative"   # or "gemini3-first"
 cache_minutes = 5
 pre_check = true
+restart_on_switch = false   # ask Gemini CLI to restart agent after rotation
 ```
 
 #### View and modify config
@@ -346,11 +416,18 @@ switcher config set general.log_level debug
 | `switcher gemini list` | List all Gemini profiles with status |
 | `switcher gemini switch <n\|label>` | Switch to a profile by index or label |
 | `switcher gemini next` | Rotate to the next profile |
+| `switcher gemini change [n\|label]` | Slash-command parity: no arg → next, label/index → switch |
+| `switcher gemini menu` | Launch interactive profile management menu |
+| `switcher gemini quota` | Show live quota usage for all OAuth profiles |
 | `switcher gemini add [label] [--type oauth\|apikey]` | Create a new empty profile |
 | `switcher gemini remove <n\|label>` | Delete a profile |
 | `switcher gemini import <path> [label]` | Import credentials from a file |
 | `switcher gemini export <n\|label> [dest]` | Export profile credentials to a file |
 | `switcher gemini health` | Run health checks on all profiles |
+| `switcher gemini pool` | Alias for `list` |
+| `switcher gemini pool add [label]` | Alias for `add` |
+| `switcher gemini pool remove <n\|label>` | Alias for `remove` |
+| `switcher gemini pool import <path> [label]` | Alias for `import` |
 
 ### Codex Commands
 
@@ -359,10 +436,16 @@ switcher config set general.log_level debug
 | `switcher codex list` | List all Codex profiles with status |
 | `switcher codex switch <n\|label>` | Switch to a profile by index or label |
 | `switcher codex next` | Rotate to the next profile |
+| `switcher codex change [n\|label]` | Slash-command parity: no arg → next, label/index → switch |
+| `switcher codex menu` | Launch interactive profile management menu |
 | `switcher codex add [label] [--type apikey\|chatgpt]` | Create a new empty profile |
 | `switcher codex remove <n\|label>` | Delete a profile |
 | `switcher codex import <path> [label]` | Import auth.json or API key file |
 | `switcher codex export <n\|label> [dest]` | Export profile credentials to a file |
+| `switcher codex pool` | Alias for `list` |
+| `switcher codex pool add [label]` | Alias for `add` |
+| `switcher codex pool remove <n\|label>` | Alias for `remove` |
+| `switcher codex pool import <path> [label]` | Alias for `import` |
 
 ---
 
@@ -403,8 +486,9 @@ ai-account-switcher/
 │   ├── __init__.py
 │   ├── cli.py              # Argument parsing, command routing
 │   ├── config.py           # TOML config management
-│   ├── state.py            # Active profile state (JSON, file-locked)
+│   ├── state.py            # Active profile state (JSON, file-locked) + handoff flags
 │   ├── ui.py               # Terminal colors, tables, dashboard
+│   ├── ui_menu.py          # Interactive numbered TUI menu
 │   ├── utils.py            # XDG paths, logging, file locking, atomic symlinks
 │   ├── errors.py           # Custom exception hierarchy
 │   ├── health.py           # Token/key validation for all auth types
@@ -418,7 +502,8 @@ ai-account-switcher/
 │   │   ├── gemini_auth.py      # Gemini credential activation
 │   │   └── codex_auth.py       # Codex credential activation
 │   └── hooks/
-│       ├── gemini_after_agent.py   # Post-response quota error detection
+│       ├── quota_patterns.py       # Centralised quota-error regex patterns
+│       ├── gemini_after_agent.py   # Post-response quota error detection + rotation
 │       └── gemini_before_agent.py  # Pre-request proactive quota check
 └── tests/                  # Test suite (pytest)
 ```
@@ -429,6 +514,7 @@ ai-account-switcher/
 |---|---|
 | `~/.config/ai-account-switcher/config.toml` | User preferences |
 | `~/.config/ai-account-switcher/state.json` | Active profiles, rotation state |
+| `~/.config/ai-account-switcher/state/quota_error_gemini.json` | Short-lived handoff flag (AfterAgent → BeforeAgent) |
 | `~/.config/ai-account-switcher/env.sh` | Exported API key environment variables |
 | `~/.config/ai-account-switcher/profiles/` | Profile credential storage |
 | `~/.config/ai-account-switcher/logs/switcher.log` | Application log |
@@ -508,7 +594,7 @@ mypy switcher/
 - Use `tmp_path` fixtures and `mock_keyring` for isolation
 - Patch `switcher.utils.get_config_dir()` / `get_gemini_dir()` / `get_codex_dir()` to return temp paths
 - Mock HTTP calls (`requests.post` / `requests.get`) for health checks and quota APIs
-- Target: **≥80% line coverage**
+- Target: **≥91% line coverage**
 
 ### Submitting Changes
 
