@@ -12,22 +12,17 @@ Any error → output {} and exit 0.
 from __future__ import annotations
 
 import json
-import re
 import subprocess
 import sys
 from pathlib import Path
 
-# Quota error patterns to match against prompt_response
-QUOTA_ERROR_PATTERNS: list[re.Pattern[str]] = [
-    re.compile(r"429", re.IGNORECASE),
-    re.compile(r"Resource\s+exhausted", re.IGNORECASE),
-    re.compile(r"Quota\s+exceeded", re.IGNORECASE),
-    re.compile(r"Usage\s+limit\s+reached", re.IGNORECASE),
-    re.compile(r"limit\s+reached\s+for\s+all.*models", re.IGNORECASE),
-    re.compile(r"RESOURCE_EXHAUSTED"),
-    re.compile(r"PERMISSION_DENIED.*VALIDATION_REQUIRED"),
-    re.compile(r"rate\s*limit", re.IGNORECASE),
-]
+# Import centralised patterns — also re-exported for backwards compatibility.
+# The sys.path insert below keeps the hook working when run standalone (copied
+# to ~/.config/ai-account-switcher/hooks/ by the installer).
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from switcher.hooks.quota_patterns import (
+    is_quota_error as _is_quota_error,
+)
 
 
 def _output(data: dict) -> None:  # type: ignore[type-arg]
@@ -38,8 +33,11 @@ def _output(data: dict) -> None:  # type: ignore[type-arg]
 
 
 def is_quota_error(response: str) -> bool:
-    """Check if a response string matches any quota error pattern."""
-    return any(p.search(response) for p in QUOTA_ERROR_PATTERNS)
+    """Check if a response string matches any quota error pattern.
+
+    Delegates to the centralised quota_patterns module.
+    """
+    return _is_quota_error(response)
 
 
 def _find_switcher() -> str:
@@ -116,22 +114,22 @@ def main() -> None:
             return
 
         # Get new active profile name
-        from switcher.state import get_active_profile
+        from switcher.state import get_active_profile, set_quota_error_flag
 
         new_profile = get_active_profile("gemini") or "next account"
 
         # Increment retry count
         update_rotation_state("gemini", retry_count=rot["retry_count"] + 1)
 
-        _output(
-            {
-                "decision": "retry",
-                "systemMessage": (
-                    f"\U0001f504 Quota exhausted — switched to "
-                    f"{new_profile}. Retrying..."
-                ),
-            }
-        )
+        # Write crash-safe handoff flag so BeforeAgent knows a switch happened
+        set_quota_error_flag("gemini")
+
+        restart_on_switch = config["auto_rotate"].get("restart_on_switch", False)
+        msg = f"\U0001f504 Quota exhausted — switched to {new_profile}. Retrying..."
+        if restart_on_switch:
+            msg += " (restart Gemini CLI if the response is still incorrect)"
+
+        _output({"decision": "retry", "systemMessage": msg})
 
     except Exception:
         # Never crash the parent CLI

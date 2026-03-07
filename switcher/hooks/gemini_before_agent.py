@@ -199,7 +199,11 @@ def main() -> None:
         # Load config
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
         from switcher.config import load_config
-        from switcher.state import get_active_profile
+        from switcher.state import (
+            clear_quota_error_flag,
+            get_active_profile,
+            get_quota_error_flag,
+        )
         from switcher.utils import get_config_dir
 
         config = load_config()
@@ -221,6 +225,12 @@ def main() -> None:
 
         profiles_dir = get_config_dir() / "profiles" / "gemini" / active
         if not profiles_dir.exists():
+            _output({})
+            return
+
+        # If AfterAgent wrote a handoff flag, trust it and skip the API call.
+        if get_quota_error_flag("gemini"):
+            clear_quota_error_flag("gemini")
             _output({})
             return
 
