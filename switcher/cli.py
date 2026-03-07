@@ -472,6 +472,81 @@ def cmd_health(_args: argparse.Namespace, cli_name: str) -> None:
             print(f"    {q.model:<28} {bar}  {q.remaining_pct:5.1f}%{warn}{reset_str}")
 
 
+def cmd_quota(_args: argparse.Namespace, cli_name: str) -> None:
+    """Show live quota usage for Gemini OAuth profiles.
+
+    Only meaningful for Gemini — Codex does not expose a quota API.
+    """
+    if cli_name != "gemini":
+        print_warning("Quota checking is only available for Gemini CLI profiles.")
+        return
+
+    from switcher.health import fetch_quota_info
+
+    mgr = _get_manager(cli_name)
+    oauth_profiles = [p for p in mgr.list_profiles() if p.auth_type == "oauth"]
+
+    if not oauth_profiles:
+        print_warning("No Gemini OAuth profiles configured.")
+        return
+
+    print_info(f"Fetching quota for {len(oauth_profiles)} OAuth profile(s)...")
+    print(f"\n  {'─' * 62}")
+
+    for profile in oauth_profiles:
+        active_label = get_active_profile(cli_name)
+        active_marker = " ●" if profile.label == active_label else ""
+        print(f"\n  {profile.label}{active_marker}")
+
+        qi = fetch_quota_info(profile)
+
+        if qi.email:
+            print(f"  ({qi.email})")
+
+        if qi.error and not qi.quotas:
+            print_warning(f"    {qi.error}")
+            continue
+
+        if not qi.quotas:
+            print("    No quota data available.")
+            continue
+
+        for q in qi.quotas:
+            bar = _quota_bar(q.remaining_pct)
+            warn = " ⚠️" if q.remaining_pct < 20 else ""
+            reset_str = ""
+            if q.reset_at:
+                reset_str = f"  resets {_format_reset_date(str(q.reset_at))}"
+            print(f"    {q.model:<28} {bar}  {q.remaining_pct:5.1f}%{warn}{reset_str}")
+
+    print()
+
+
+def cmd_change(args: argparse.Namespace, cli_name: str) -> None:
+    """Switch profile — slash-command parity for /change.
+
+    Routing:
+        No target or 'next'  → rotate to next profile (same as ``gemini next``)
+        Numeric string       → switch to that 1-based index
+        Any other string     → switch by label
+    """
+    target: str | None = getattr(args, "target", None)
+
+    if not target or target.lower() == "next":
+        cmd_next(args, cli_name)
+        return
+
+    # Delegate to switch — args already has .target set
+    cmd_switch(args, cli_name)
+
+
+def cmd_menu(_args: argparse.Namespace, cli_name: str) -> None:
+    """Launch the interactive profile management menu."""
+    from switcher.ui_menu import run_menu
+
+    run_menu(cli_name, build_parser())
+
+
 def cmd_config(args: argparse.Namespace) -> None:
     """View or set config values."""
     key = getattr(args, "key", None)
@@ -604,6 +679,36 @@ def _add_cli_subcommands(
     # health
     cli_sub.add_parser("health", help="Check profile health")
 
+    # change — slash-command parity (/change, /change next, /change 2, /change email)
+    change_p = cli_sub.add_parser(
+        "change", help="Switch profile (slash-command parity)"
+    )
+    change_p.add_argument(
+        "target",
+        nargs="?",
+        help="'next', 1-based index, or label (omit to rotate to next)",
+    )
+
+    # pool — aliases for list/add/remove/import under a 'pool' namespace
+    pool_p = cli_sub.add_parser("pool", help="Profile pool aliases")
+    pool_sub = pool_p.add_subparsers(dest="pool_action")
+    pool_sub.add_parser("list", help="List profiles in the pool")
+    pool_add_p = pool_sub.add_parser("add", help="Add profile to the pool")
+    pool_add_p.add_argument("label", nargs="?", help="Profile label")
+    pool_add_p.add_argument("--type", "-t", dest="type", help="Auth type")
+    pool_rm_p = pool_sub.add_parser("remove", help="Remove profile from the pool")
+    pool_rm_p.add_argument("target", help="Profile index (1-based) or label")
+    pool_imp_p = pool_sub.add_parser("import", help="Import credentials into pool")
+    pool_imp_p.add_argument("path", help="Path to credentials file")
+    pool_imp_p.add_argument("label", nargs="?", help="Profile label")
+
+    # menu — interactive profile management (gemini only)
+    cli_sub.add_parser("menu", help="Interactive profile management menu")
+
+    # quota — live quota usage (gemini only)
+    if cli_name == "gemini":
+        cli_sub.add_parser("quota", help="Show live quota usage")
+
 
 def build_parser() -> argparse.ArgumentParser:
     """Construct the argparse parser with all subcommands."""
@@ -639,7 +744,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 # ── Routing ───────────────────────────────────────────────────────
 
-# Map of (command, action) → handler
+# Map of action → handler for canonical CLI subcommands
 _CLI_ACTIONS: dict[str, Any] = {
     "list": cmd_list,
     "switch": cmd_switch,
@@ -649,6 +754,16 @@ _CLI_ACTIONS: dict[str, Any] = {
     "import": cmd_import,
     "export": cmd_export,
     "health": cmd_health,
+    "quota": cmd_quota,
+    "change": cmd_change,
+    "menu": cmd_menu,
+}
+
+# Pool sub-action → handler mapping (delegates to canonical commands)
+_POOL_ACTIONS: dict[str, Any] = {
+    "add": cmd_add,
+    "remove": cmd_remove,
+    "import": cmd_import,
 }
 
 
@@ -709,6 +824,16 @@ def _dispatch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None
         if action is None:
             # No action → list profiles
             cmd_list(args, command)
+            return
+
+        # pool aliases — route to pool_action or default to list
+        if action == "pool":
+            pool_action = getattr(args, "pool_action", None)
+            pool_handler = _POOL_ACTIONS.get(pool_action or "")
+            if pool_handler:
+                pool_handler(args, command)
+            else:
+                cmd_list(args, command)
             return
 
         handler = _CLI_ACTIONS.get(action)

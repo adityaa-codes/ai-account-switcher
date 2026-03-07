@@ -33,6 +33,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "threshold_percent": 10,
         "max_retries": 3,
         "cache_minutes": 3,
+        "restart_on_switch": False,
         "codex": {
             "enabled": False,
         },

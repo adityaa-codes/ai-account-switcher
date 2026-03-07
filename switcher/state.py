@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
+import time
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
+from switcher.utils import file_lock, get_config_dir
+
 if TYPE_CHECKING:
     from pathlib import Path
-
-from switcher.utils import file_lock, get_config_dir
 
 DEFAULT_CLI_STATE: dict[str, Any] = {
     "active_profile": None,
@@ -124,3 +126,65 @@ def update_rotation_state(cli_name: str, **kwargs: Any) -> None:
         if key in DEFAULT_CLI_STATE:
             state[cli_name][key] = value
     save_state(state)
+
+
+# ---------------------------------------------------------------------------
+# Crash-safe hook handoff state
+# ---------------------------------------------------------------------------
+
+_HANDOFF_TTL = 120  # seconds a quota-error flag stays valid
+
+
+def _handoff_path(cli_name: str) -> Path:
+    return get_config_dir() / "state" / f"quota_error_{cli_name}.json"
+
+
+def set_quota_error_flag(cli_name: str, ttl: int = _HANDOFF_TTL) -> None:
+    """Write a timestamped flag indicating a quota error occurred.
+
+    Called by the AfterAgent hook so BeforeAgent can detect a recent switch
+    without making a fresh API call.
+
+    Args:
+        cli_name: 'gemini' or 'codex'.
+        ttl: Seconds before the flag is considered stale (default 120).
+    """
+    path = _handoff_path(cli_name)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with file_lock(path):
+        path.write_text(
+            json.dumps({"timestamp": time.time(), "ttl": ttl}) + "\n",
+            encoding="utf-8",
+        )
+
+
+def get_quota_error_flag(cli_name: str) -> bool:
+    """Return True if a non-expired quota-error flag exists for *cli_name*.
+
+    Args:
+        cli_name: 'gemini' or 'codex'.
+
+    Returns:
+        True if a valid (non-expired) flag is present, False otherwise.
+    """
+    path = _handoff_path(cli_name)
+    if not path.exists():
+        return False
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        age = time.time() - float(data.get("timestamp", 0))
+        ttl = float(data.get("ttl", _HANDOFF_TTL))
+        return age < ttl
+    except (json.JSONDecodeError, ValueError, KeyError):
+        return False
+
+
+def clear_quota_error_flag(cli_name: str) -> None:
+    """Delete the quota-error handoff flag for *cli_name*.
+
+    Args:
+        cli_name: 'gemini' or 'codex'.
+    """
+    path = _handoff_path(cli_name)
+    with contextlib.suppress(OSError):
+        path.unlink(missing_ok=True)
