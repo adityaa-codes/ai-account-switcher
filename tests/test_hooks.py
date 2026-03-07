@@ -11,15 +11,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from switcher.hooks.gemini_after_agent import (
-    QUOTA_ERROR_PATTERNS,
-    is_quota_error,
-)
+from switcher.hooks.gemini_after_agent import is_quota_error
 from switcher.hooks.gemini_before_agent import (
     _load_quota_cache,
     _save_quota_cache,
     _should_switch,
 )
+from switcher.hooks.quota_patterns import QUOTA_ERROR_PATTERNS
 
 # ---------------------------------------------------------------------------
 # is_quota_error

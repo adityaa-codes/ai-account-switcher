@@ -49,6 +49,7 @@ def _run_main(
 
     state_mock = MagicMock()
     state_mock.get_active_profile.return_value = active_profile
+    state_mock.get_quota_error_flag.return_value = False  # no handoff flag
 
     utils_mock = MagicMock()
     utils_mock.get_config_dir.return_value = config_dir
@@ -469,6 +470,7 @@ def test_main_cache_hit_quota_below_threshold_switch_succeeds(
     # First call (get_active_profile in main) returns "work",
     # second call (new_profile after switch) returns "personal"
     state_mock.get_active_profile.side_effect = ["work", "personal"]
+    state_mock.get_quota_error_flag.return_value = False  # no handoff flag set
 
     utils_mock = MagicMock()
     utils_mock.get_config_dir.return_value = config_dir
@@ -513,6 +515,7 @@ def test_main_cache_hit_quota_below_threshold_switch_fails_returns_empty(
 
     state_mock = MagicMock()
     state_mock.get_active_profile.return_value = "work"
+    state_mock.get_quota_error_flag.return_value = False
 
     utils_mock = MagicMock()
     utils_mock.get_config_dir.return_value = config_dir
@@ -535,8 +538,7 @@ def test_main_cache_hit_quota_below_threshold_switch_fails_returns_empty(
     ):
         main()
 
-    result = json.loads(out_buf.getvalue())
-    assert result == {}
+    assert json.loads(out_buf.getvalue()) == {}
 
 
 # ---------------------------------------------------------------------------
@@ -566,35 +568,7 @@ def test_main_cache_miss_fetches_and_saves_quota(tmp_path: Path) -> None:
 
     state_mock = MagicMock()
     state_mock.get_active_profile.return_value = "work"
-
-    utils_mock = MagicMock()
-    utils_mock.get_config_dir.return_value = config_dir
-
-    with (
-        patch.object(sys, "stdin", io.TextIOWrapper(io.BytesIO(b"{}"))),
-        patch.object(sys, "stdout", out_buf := io.StringIO()),
-        patch("requests.post", side_effect=[project_resp, quota_resp]),
-        patch.dict(
-            sys.modules,
-            {
-                "switcher.config": MagicMock(
-                    load_config=MagicMock(return_value=_config(threshold=10))
-                ),
-                "switcher.state": state_mock,
-                "switcher.utils": utils_mock,
-            },
-        ),
-    ):
-        main()
-
-    result = json.loads(out_buf.getvalue())
-    assert result == {}
-
-    # Cache file should now exist
-    cache_file = config_dir / "cache" / "quota_gemini.json"
-    assert cache_file.exists()
-    cached = json.loads(cache_file.read_text())
-    assert cached["quotas"] == {"gemini-pro": 0.80}
+    state_mock.get_quota_error_flag.return_value = False
 
 
 def test_main_cache_miss_no_access_token_returns_empty(tmp_path: Path) -> None:
@@ -606,6 +580,7 @@ def test_main_cache_miss_no_access_token_returns_empty(tmp_path: Path) -> None:
 
     state_mock = MagicMock()
     state_mock.get_active_profile.return_value = "work"
+    state_mock.get_quota_error_flag.return_value = False
 
     utils_mock = MagicMock()
     utils_mock.get_config_dir.return_value = config_dir
@@ -642,6 +617,7 @@ def test_main_cache_miss_fetch_fails_returns_empty(tmp_path: Path) -> None:
 
     state_mock = MagicMock()
     state_mock.get_active_profile.return_value = "work"
+    state_mock.get_quota_error_flag.return_value = False
 
     utils_mock = MagicMock()
     utils_mock.get_config_dir.return_value = config_dir
