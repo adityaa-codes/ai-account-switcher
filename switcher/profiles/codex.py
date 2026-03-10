@@ -13,6 +13,9 @@ from switcher.auth.codex_auth import (
     activate_chatgpt_profile,
     detect_auth_type,
 )
+from switcher.auth.codex_memory import restore_memory, snapshot_memory
+from switcher.auth.codex_plugins import snapshot_plugins, warn_plugin_divergence
+from switcher.auth.codex_sandbox import restore_policy, snapshot_policy
 from switcher.errors import AuthError, ProfileCorruptError, ProfileNotFoundError
 from switcher.profiles.base import Profile, ProfileManager, load_meta, save_meta
 from switcher.state import get_active_profile, set_active_profile
@@ -116,6 +119,16 @@ class CodexProfileManager(ProfileManager):
     def switch_to(self, identifier: str) -> str:
         """Switch to a Codex profile by index or label."""
         profile = self._resolve_identifier(identifier)
+        codex_dir = self.target_dir
+
+        # Snapshot departing profile's memory, plugins, and sandbox policy.
+        current_label = get_active_profile("codex")
+        if current_label and current_label != profile.label:
+            departing_path = self.profiles_dir / current_label
+            if departing_path.is_dir():
+                snapshot_memory(codex_dir, departing_path)
+                snapshot_plugins(codex_dir, departing_path)
+                snapshot_policy(codex_dir, departing_path)
 
         # Activate based on auth type
         auth_type = profile.meta.get("auth_type", "unknown")
@@ -137,6 +150,11 @@ class CodexProfileManager(ProfileManager):
             raise AuthError(
                 f"Unknown auth type '{auth_type}' for profile '{profile.label}'"
             )
+
+        # Restore incoming profile's memory and sandbox policy.
+        restore_memory(profile.path, codex_dir)
+        restore_policy(profile.path, codex_dir)
+        warn_plugin_divergence(profile.path, codex_dir)
 
         # Update state and meta
         set_active_profile("codex", profile.label)
