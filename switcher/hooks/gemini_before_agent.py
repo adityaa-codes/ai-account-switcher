@@ -105,7 +105,14 @@ def _fetch_quota(access_token: str) -> dict | None:  # type: ignore[type-arg]
         resp = requests.post(
             LOAD_CODE_ASSIST_URL,
             headers=headers,
-            json={"supportedFeatures": ["GEMINI_CLI"]},
+            json={
+                "metadata": {
+                    "ideType": "GEMINI_CLI",
+                    "platform": "PLATFORM_UNSPECIFIED",
+                    "pluginType": "GEMINI",
+                },
+                "mode": "HEALTH_CHECK",
+            },
             timeout=5,
         )
         if resp.status_code != 200:
@@ -195,6 +202,12 @@ def main() -> None:
     try:
         # Parse stdin
         _input_data = json.load(sys.stdin)
+
+        # Gemini CLI sets stopHookActive when it has already stopped the agent
+        # loop. Respect it and do nothing — attempting a switch here would hang.
+        if _input_data.get("stopHookActive"):
+            _output({})
+            return
 
         # Load config
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))

@@ -61,6 +61,13 @@ def main() -> None:
     try:
         # Parse stdin
         input_data = json.load(sys.stdin)
+
+        # Gemini CLI sets stopHookActive when the loop has been stopped.
+        # Bail out immediately — retrying or switching would deadlock the CLI.
+        if input_data.get("stopHookActive"):
+            _output({})
+            return
+
         response = input_data.get("prompt_response", "")
 
         if not response or not isinstance(response, str):
@@ -129,7 +136,7 @@ def main() -> None:
         if restart_on_switch:
             msg += " (restart Gemini CLI if the response is still incorrect)"
 
-        _output({"decision": "retry", "systemMessage": msg})
+        _output({"decision": "retry", "systemMessage": msg, "stopHookActive": False})
 
     except Exception:
         # Never crash the parent CLI

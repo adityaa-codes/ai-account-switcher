@@ -379,3 +379,92 @@ def test_before_agent_no_active_profile_returns_empty() -> None:
         mod.main()
     result = json.loads(out_buf.getvalue())
     assert result == {}
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 — stopHookActive handling (A-1, A-2, A-3)
+# ---------------------------------------------------------------------------
+
+
+def test_after_agent_stop_hook_active_returns_empty() -> None:
+    """A-2: AfterAgent must bail out immediately when stopHookActive is set."""
+    from switcher.hooks import gemini_after_agent as mod
+
+    stdin_data = {
+        "stopHookActive": True,
+        "prompt_response": "Error 429: quota exceeded",
+    }
+    out_buf = io.StringIO()
+    with (
+        patch.object(
+            sys, "stdin", io.TextIOWrapper(io.BytesIO(json.dumps(stdin_data).encode()))
+        ),
+        patch.object(sys, "stdout", out_buf),
+    ):
+        mod.main()
+
+    result = json.loads(out_buf.getvalue())
+    assert result == {}, (
+        "stopHookActive=True must produce empty output regardless of quota error"
+    )
+
+
+def test_after_agent_retry_response_includes_stop_hook_active_false() -> None:
+    """A-3: AfterAgent retry response must include stopHookActive: false."""
+    from switcher.hooks import gemini_after_agent as mod
+
+    config = {"auto_rotate": {"enabled": True, "max_retries": 3}}
+    rot = {"retry_count": 0, "last_error": None}
+    stdin_data = {"prompt_response": "Error 429: quota exceeded"}
+    mock_result = SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    out_buf = io.StringIO()
+    with (
+        patch.object(
+            sys, "stdin", io.TextIOWrapper(io.BytesIO(json.dumps(stdin_data).encode()))
+        ),
+        patch.object(sys, "stdout", out_buf),
+        patch.object(mod, "_find_switcher", return_value="/fake/switcher"),
+        patch("subprocess.run", return_value=mock_result),
+        patch.dict(
+            sys.modules,
+            {
+                "switcher.config": MagicMock(
+                    load_config=MagicMock(return_value=config)
+                ),
+                "switcher.state": MagicMock(
+                    get_rotation_state=MagicMock(return_value=rot),
+                    update_rotation_state=MagicMock(),
+                    get_active_profile=MagicMock(return_value="work"),
+                    set_quota_error_flag=MagicMock(),
+                ),
+            },
+        ),
+    ):
+        mod.main()
+
+    result = json.loads(out_buf.getvalue())
+    assert result.get("decision") == "retry"
+    assert result.get("stopHookActive") is False, (
+        "retry response must carry stopHookActive: false"
+    )
+
+
+def test_before_agent_stop_hook_active_returns_empty() -> None:
+    """A-1: BeforeAgent must bail out immediately when stopHookActive is set."""
+    from switcher.hooks import gemini_before_agent as mod
+
+    stdin_data = {"stopHookActive": True}
+    out_buf = io.StringIO()
+    with (
+        patch.object(
+            sys, "stdin", io.TextIOWrapper(io.BytesIO(json.dumps(stdin_data).encode()))
+        ),
+        patch.object(sys, "stdout", out_buf),
+    ):
+        mod.main()
+
+    result = json.loads(out_buf.getvalue())
+    assert result == {}, (
+        "stopHookActive=True must produce empty output without network calls"
+    )
