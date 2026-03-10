@@ -1001,9 +1001,9 @@ def test_cmd_health_shows_quota_section(
     out = capsys.readouterr().out
     assert "alice@example.com" in out
     assert "gemini-2.5-pro" in out
-    assert "73" in out
-    assert "15" in out
-    assert "⚠️" in out  # low quota warning
+    assert "27" in out  # 100 - 73 = 27% used (pro model)
+    assert "85" in out  # 100 - 15 = 85% used (flash model)
+    assert "⚠️" in out  # low-remaining quota warning
 
 
 def test_cmd_health_quota_error_displayed(

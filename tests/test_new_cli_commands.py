@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 from switcher.cli import (
@@ -11,6 +12,9 @@ from switcher.cli import (
     cmd_change,
     cmd_quota,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # cmd_change routing
@@ -258,3 +262,199 @@ class TestMenuDispatch:
                 argparse.Namespace(command="gemini", action="menu"),
             )
         mock_menu.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Phase 3: pool health / export / status dispatch (D-1 through D-4)
+# ---------------------------------------------------------------------------
+
+
+class TestPoolExtendedDispatch:
+    def test_pool_list_routes_to_cmd_list(self) -> None:
+        """D-1: pool list should delegate to cmd_list."""
+        parser = build_parser()
+        mock_list = MagicMock()
+        with patch.dict("switcher.cli._POOL_ACTIONS", {"list": mock_list}):
+            _dispatch(
+                parser,
+                argparse.Namespace(command="gemini", action="pool", pool_action="list"),
+            )
+        mock_list.assert_called_once()
+
+    def test_pool_health_routes_to_cmd_health(self) -> None:
+        """D-2: pool health should delegate to cmd_health."""
+        parser = build_parser()
+        mock_health = MagicMock()
+        with patch.dict("switcher.cli._POOL_ACTIONS", {"health": mock_health}):
+            _dispatch(
+                parser,
+                argparse.Namespace(
+                    command="gemini", action="pool", pool_action="health"
+                ),
+            )
+        mock_health.assert_called_once()
+
+    def test_pool_export_routes_to_cmd_export(self) -> None:
+        """D-3: pool export should delegate to cmd_export."""
+        parser = build_parser()
+        mock_export = MagicMock()
+        with patch.dict("switcher.cli._POOL_ACTIONS", {"export": mock_export}):
+            _dispatch(
+                parser,
+                argparse.Namespace(
+                    command="gemini",
+                    action="pool",
+                    pool_action="export",
+                    target="work",
+                    dest=None,
+                ),
+            )
+        mock_export.assert_called_once()
+
+    def test_pool_status_routes_to_cmd_pool_status(self) -> None:
+        """D-4: pool status should delegate to cmd_pool_status."""
+        parser = build_parser()
+        mock_status = MagicMock()
+        with patch.dict("switcher.cli._POOL_ACTIONS", {"status": mock_status}):
+            _dispatch(
+                parser,
+                argparse.Namespace(
+                    command="gemini", action="pool", pool_action="status"
+                ),
+            )
+        mock_status.assert_called_once()
+
+    def test_pool_status_output(self, tmp_path: Path, capsys: object) -> None:
+        """D-4: cmd_pool_status prints one line per profile."""
+        from switcher.cli import cmd_pool_status
+        from switcher.profiles.base import Profile
+
+        fake_profile = Profile(
+            label="work",
+            auth_type="oauth",
+            path=tmp_path / "work",
+            meta={"last_used": "2025-01-01"},
+        )
+
+        with (
+            patch("switcher.cli._get_manager") as mock_mgr,
+            patch("switcher.cli.get_active_profile", return_value="work"),
+            patch("switcher.health.check_profile", return_value=("valid", "")),
+        ):
+            mock_mgr.return_value.list_profiles.return_value = [fake_profile]
+            cmd_pool_status(
+                argparse.Namespace(
+                    command="gemini", action="pool", pool_action="status"
+                ),
+                "gemini",
+            )
+
+        captured = capsys.readouterr()  # type: ignore[attr-defined]
+        assert "work" in captured.out
+        assert "oauth" in captured.out
+
+
+# ---------------------------------------------------------------------------
+# Phase 5: alerts, version --check, quota display (I-1, I-3, I-4)
+# ---------------------------------------------------------------------------
+
+
+class TestAlertsCommand:
+    def test_alerts_no_log_file(
+        self, tmp_path: Path, capsys: object
+    ) -> None:
+        """I-3: alerts prints clean message when no errors.log exists."""
+        from switcher.cli import cmd_alerts
+
+        with patch("switcher.utils.get_config_dir", return_value=tmp_path):
+            cmd_alerts(argparse.Namespace(lines=20))
+
+        out = capsys.readouterr().out  # type: ignore[attr-defined]
+        assert "clean" in out.lower() or "no error" in out.lower()
+
+    def test_alerts_shows_last_n_lines(
+        self, tmp_path: Path, capsys: object
+    ) -> None:
+        """I-3: alerts tails --lines N lines from errors.log."""
+        from switcher.cli import cmd_alerts
+
+        logs_dir = tmp_path / "logs"
+        logs_dir.mkdir()
+        errors_log = logs_dir / "errors.log"
+        errors_log.write_text(
+            "\n".join(f"2025-01-01 ERROR line-{i}" for i in range(30))
+        )
+
+        with patch("switcher.utils.get_config_dir", return_value=tmp_path):
+            cmd_alerts(argparse.Namespace(lines=5))
+
+        out = capsys.readouterr().out  # type: ignore[attr-defined]
+        assert "line-29" in out
+        assert "line-25" in out
+        # Should NOT show early lines
+        assert "line-0" not in out
+
+    def test_alerts_dispatch(self) -> None:
+        """I-3: 'alerts' command is dispatched by _dispatch."""
+        parser = build_parser()
+        with patch("switcher.cli.cmd_alerts") as mock_alerts:
+            _dispatch(parser, argparse.Namespace(command="alerts", lines=20))
+        mock_alerts.assert_called_once()
+
+
+class TestVersionCheck:
+    def test_version_no_check_prints_version(
+        self, capsys: object
+    ) -> None:
+        """I-4: version without --check just prints version."""
+        from switcher.cli import cmd_version
+
+        cmd_version(argparse.Namespace(check=False))
+        out = capsys.readouterr().out  # type: ignore[attr-defined]
+        assert "cli-switcher" in out
+
+    def test_version_check_up_to_date(self, capsys: object) -> None:
+        """I-4: version --check prints 'Up to date' when versions match."""
+        from switcher import __version__
+        from switcher.cli import cmd_version
+
+        mock_resp = MagicMock()
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_resp.read.return_value = (
+            f'{{"info": {{"version": "{__version__}"}}}}'
+        ).encode()
+
+        with patch("urllib.request.urlopen", return_value=mock_resp):
+            cmd_version(argparse.Namespace(check=True))
+
+        out = capsys.readouterr().out  # type: ignore[attr-defined]
+        assert "up to date" in out.lower()
+
+    def test_version_check_update_available(self, capsys: object) -> None:
+        """I-4: version --check prints update notice when newer version exists."""
+        from switcher.cli import cmd_version
+
+        mock_resp = MagicMock()
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_resp.read.return_value = b'{"info": {"version": "99.99.99"}}'
+
+        with patch("urllib.request.urlopen", return_value=mock_resp):
+            cmd_version(argparse.Namespace(check=True))
+
+        out = capsys.readouterr().out  # type: ignore[attr-defined]
+        assert "99.99.99" in out
+
+    def test_version_check_network_error_silently_skipped(
+        self, capsys: object
+    ) -> None:
+        """I-4: version --check silently skips on network error."""
+        from switcher.cli import cmd_version
+
+        with patch("urllib.request.urlopen", side_effect=OSError("no network")):
+            cmd_version(argparse.Namespace(check=True))
+
+        # Should not raise; output is just the version line
+        out = capsys.readouterr().out  # type: ignore[attr-defined]
+        assert "cli-switcher" in out

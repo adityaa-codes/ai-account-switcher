@@ -8,6 +8,7 @@ import json
 import logging
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -375,6 +376,39 @@ def cmd_export(args: argparse.Namespace, cli_name: str) -> None:
     print_success(f"Exported to: {out}")
 
 
+def cmd_pool_status(_args: argparse.Namespace, cli_name: str) -> None:
+    """Show a compact one-liner status for each profile in the pool.
+
+    Displays: index, label, auth type, health status, and last-used timestamp.
+    """
+    from switcher.health import check_profile
+
+    mgr = _get_manager(cli_name)
+    profiles = mgr.list_profiles()
+    if not profiles:
+        print_warning(f"No {cli_name} profiles configured.")
+        return
+
+    active = get_active_profile(cli_name)
+    _HEALTH_ICONS: dict[str, str] = {
+        "valid": "✅",
+        "expiring": "⚠️ ",
+        "expired": "❌",
+        "revoked": "🚫",
+        "unknown": "❓",
+    }
+    for i, profile in enumerate(profiles, 1):
+        marker = "▶" if profile.label == active else " "
+        status, _detail = check_profile(cli_name, profile)
+        icon = _HEALTH_ICONS.get(status, "❓")
+        last_used = profile.meta.get("last_used", "never")
+        print(
+            f"  {marker} {i:02d}. {profile.label:<24} "
+            f"{profile.auth_type:<8} {icon} {status:<10}  "
+            f"last: {last_used}"
+        )
+
+
 def _quota_bar(pct: float, width: int = 10) -> str:
     """Render a Unicode progress bar for quota remaining percentage.
 
@@ -404,7 +438,8 @@ def _format_reset_date(iso_str: str) -> str:
         dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00")).astimezone(
             timezone.utc
         )
-        return dt.strftime("%b %-d %Y")
+        day = str(dt.day)  # portable — no %-d GNU extension
+        return dt.strftime(f"%b {day} %Y")
     except (ValueError, AttributeError):
         return iso_str
 
@@ -459,17 +494,21 @@ def cmd_health(_args: argparse.Namespace, cli_name: str) -> None:
     for profile, quota_info in quota_results:
         assert isinstance(quota_info, ProfileQuotaInfo)
         email_str = f"  ({quota_info.email})" if quota_info.email else ""
-        print(f"\n  {profile.label}{email_str}")
+        tier_str = f"  [{quota_info.tier}]" if quota_info.tier else ""
+        print(f"\n  {profile.label}{email_str}{tier_str}")
         if quota_info.error and not quota_info.quotas:
             print(f"    ⚠️  {quota_info.error}")
             continue
         for q in quota_info.quotas:
-            bar = _quota_bar(q.remaining_pct)
+            used_pct = 100.0 - q.remaining_pct
+            bar = _quota_bar(used_pct)
             warn = " ⚠️" if q.remaining_pct < 20 else ""
             reset_str = ""
             if q.reset_at:
                 reset_str = f"  resets {_format_reset_date(str(q.reset_at))}"
-            print(f"    {q.model:<28} {bar}  {q.remaining_pct:5.1f}%{warn}{reset_str}")
+            print(
+                f"    {q.model:<28} {bar}  {used_pct:5.1f}% used{warn}{reset_str}"
+            )
 
 
 def cmd_quota(_args: argparse.Namespace, cli_name: str) -> None:
@@ -512,12 +551,15 @@ def cmd_quota(_args: argparse.Namespace, cli_name: str) -> None:
             continue
 
         for q in qi.quotas:
-            bar = _quota_bar(q.remaining_pct)
+            used_pct = 100.0 - q.remaining_pct
+            bar = _quota_bar(used_pct)
             warn = " ⚠️" if q.remaining_pct < 20 else ""
             reset_str = ""
             if q.reset_at:
                 reset_str = f"  resets {_format_reset_date(str(q.reset_at))}"
-            print(f"    {q.model:<28} {bar}  {q.remaining_pct:5.1f}%{warn}{reset_str}")
+            print(
+                f"    {q.model:<28} {bar}  {used_pct:5.1f}% used{warn}{reset_str}"
+            )
 
     print()
 
@@ -631,9 +673,59 @@ def cmd_uninstall(_args: argparse.Namespace) -> None:
     run_uninstall()
 
 
-def cmd_version(_args: argparse.Namespace) -> None:
-    """Print version."""
+def cmd_alerts(args: argparse.Namespace) -> None:
+    """Show recent error log entries from errors.log.
+
+    Args:
+        args: Parsed arguments; ``args.lines`` controls how many lines to show.
+    """
+    from switcher.utils import get_config_dir
+
+    errors_log = get_config_dir() / "logs" / "errors.log"
+    n_lines: int = getattr(args, "lines", 20) or 20
+
+    if not errors_log.exists():
+        print_info("No errors log found — everything looks clean!")
+        return
+
+    try:
+        text = errors_log.read_text(encoding="utf-8", errors="replace")
+        all_lines = text.splitlines()
+        tail = all_lines[-n_lines:]
+        if not tail:
+            print_info("errors.log is empty.")
+            return
+        print_info(f"Last {len(tail)} entries from errors.log:")
+        print()
+        for line in tail:
+            print(f"  {line}")
+    except OSError as exc:
+        print_warning(f"Could not read errors.log: {exc}")
+
+
+def cmd_version(args: argparse.Namespace) -> None:
+    """Print version, optionally checking PyPI for updates."""
     print(f"cli-switcher {__version__}")
+
+    if not getattr(args, "check", False):
+        return
+
+    try:
+        import urllib.request
+
+        url = "https://pypi.org/pypi/ai-account-switcher/json"
+        with urllib.request.urlopen(url, timeout=3) as resp:
+            data = __import__("json").loads(resp.read())
+        latest = data["info"]["version"]
+        if latest == __version__:
+            print_success("Up to date.")
+        else:
+            print_warning(
+                f"Update available: {latest} — "
+                f"pip install -U ai-account-switcher"
+            )
+    except Exception:
+        pass  # silently skip on network error
 
 
 # ── Parser construction ───────────────────────────────────────────
@@ -689,7 +781,7 @@ def _add_cli_subcommands(
         help="'next', 1-based index, or label (omit to rotate to next)",
     )
 
-    # pool — aliases for list/add/remove/import under a 'pool' namespace
+    # pool — aliases for list/add/remove/import/health/export/status
     pool_p = cli_sub.add_parser("pool", help="Profile pool aliases")
     pool_sub = pool_p.add_subparsers(dest="pool_action")
     pool_sub.add_parser("list", help="List profiles in the pool")
@@ -701,6 +793,11 @@ def _add_cli_subcommands(
     pool_imp_p = pool_sub.add_parser("import", help="Import credentials into pool")
     pool_imp_p.add_argument("path", help="Path to credentials file")
     pool_imp_p.add_argument("label", nargs="?", help="Profile label")
+    pool_exp_p = pool_sub.add_parser("export", help="Export profile credentials")
+    pool_exp_p.add_argument("target", help="Profile index or label")
+    pool_exp_p.add_argument("--dest", help="Destination directory")
+    pool_sub.add_parser("health", help="Check health of all profiles in the pool")
+    pool_sub.add_parser("status", help="One-line status for each profile in the pool")
 
     # menu — interactive profile management (gemini only)
     cli_sub.add_parser("menu", help="Interactive profile management menu")
@@ -736,8 +833,18 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("install", help="Install shell + hook integration")
     subparsers.add_parser("uninstall", help="Remove shell + hook integration")
 
+    # alerts — show recent error log entries
+    alerts_p = subparsers.add_parser("alerts", help="Show recent error log entries")
+    alerts_p.add_argument(
+        "--lines", "-n", type=int, default=20,
+        help="Number of lines to show (default: 20)",
+    )
+
     # version
-    subparsers.add_parser("version", help="Print version")
+    version_p = subparsers.add_parser("version", help="Print version")
+    version_p.add_argument(
+        "--check", action="store_true", help="Check PyPI for updates"
+    )
 
     return parser
 
@@ -764,6 +871,10 @@ _POOL_ACTIONS: dict[str, Any] = {
     "add": cmd_add,
     "remove": cmd_remove,
     "import": cmd_import,
+    "list": cmd_list,
+    "health": cmd_health,
+    "export": cmd_export,
+    "status": cmd_pool_status,
 }
 
 
@@ -782,13 +893,25 @@ def main() -> None:
         log_level = "info"
     setup_logging(log_level)
 
+    cmd_logger = logging.getLogger("switcher.commands")
+    cmd_str = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else "(status)"
+    start = time.monotonic()
+
     try:
         _dispatch(parser, args)
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        cmd_logger.info("OK      [%dms] %s", elapsed_ms, cmd_str)
     except SwitcherError as exc:
+        elapsed_ms = int((time.monotonic() - start) * 1000)
         print_error(str(exc))
         logger.error("%s: %s", type(exc).__name__, exc)
+        cmd_logger.info(
+            "ERROR   [%dms] %s | %s: %s", elapsed_ms, cmd_str, type(exc).__name__, exc
+        )
         sys.exit(1)
     except KeyboardInterrupt:
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        cmd_logger.info("INTERRUPT [%dms] %s", elapsed_ms, cmd_str)
         print()
         sys.exit(130)
 
@@ -812,6 +935,10 @@ def _dispatch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None
 
     if command == "uninstall":
         cmd_uninstall(args)
+        return
+
+    if command == "alerts":
+        cmd_alerts(args)
         return
 
     if command == "version":
