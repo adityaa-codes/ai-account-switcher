@@ -93,3 +93,48 @@ def test_save_and_load_state_roundtrip(tmp_config_dir: Path) -> None:
     reloaded = load_state()
     assert reloaded["gemini"]["active_profile"] == "roundtrip@example.com"
     assert reloaded["gemini"]["retry_count"] == 2
+
+
+# ── Phase 2: C-3 OAuth client cache ────────────────────────────────────────
+
+
+def test_cache_oauth_client_writes_and_reads(tmp_config_dir: Path) -> None:
+    """C-3: cache_oauth_client writes, get_cached_oauth_client returns it."""
+    from switcher.state import cache_oauth_client, get_cached_oauth_client
+
+    cache_oauth_client(("my_id", "my_secret"))
+    result = get_cached_oauth_client()
+    assert result == ("my_id", "my_secret"), f"Expected cached client, got {result!r}"
+
+
+def test_get_cached_oauth_client_returns_none_when_missing(
+    tmp_config_dir: Path,
+) -> None:
+    """C-3: get_cached_oauth_client returns None when cache file absent."""
+    from switcher.state import get_cached_oauth_client
+
+    result = get_cached_oauth_client()
+    assert result is None
+
+
+def test_get_cached_oauth_client_expired_returns_none(tmp_config_dir: Path) -> None:
+    """C-3: get_cached_oauth_client returns None when cache is older than 24 hours."""
+    import json
+    import time
+
+    from switcher.state import (
+        _OAUTH_CLIENT_CACHE_TTL,
+        _oauth_cache_path,
+        cache_oauth_client,
+        get_cached_oauth_client,
+    )
+
+    cache_oauth_client(("old_id", "old_sec"))
+    # Overwrite cached_at with an expired timestamp
+    path = _oauth_cache_path()
+    data = json.loads(path.read_text())
+    data["cached_at"] = time.time() - (_OAUTH_CLIENT_CACHE_TTL + 1)
+    path.write_text(json.dumps(data))
+
+    result = get_cached_oauth_client()
+    assert result is None, "Expired cache should return None"

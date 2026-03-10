@@ -188,3 +188,60 @@ def clear_quota_error_flag(cli_name: str) -> None:
     path = _handoff_path(cli_name)
     with contextlib.suppress(OSError):
         path.unlink(missing_ok=True)
+
+
+# ---------------------------------------------------------------------------
+# Discovered OAuth client cache (C-3)
+# ---------------------------------------------------------------------------
+
+_OAUTH_CLIENT_CACHE_KEY = "gemini_oauth_client"
+_OAUTH_CLIENT_CACHE_TTL = 86_400  # 24 hours in seconds
+
+
+def _oauth_cache_path() -> Path:
+    return get_config_dir() / "cache" / "oauth_client.json"
+
+
+def get_cached_oauth_client() -> tuple[str, str] | None:
+    """Return cached Gemini OAuth client credentials if still valid (24 h).
+
+    Returns:
+        ``(client_id, client_secret)`` tuple, or ``None`` if absent/stale.
+    """
+    path = _oauth_cache_path()
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        age = time.time() - float(data.get("cached_at", 0))
+        if age > _OAUTH_CLIENT_CACHE_TTL:
+            return None
+        client_id = str(data["client_id"])
+        client_secret = str(data["client_secret"])
+        if client_id and client_secret:
+            return client_id, client_secret
+    except (json.JSONDecodeError, KeyError, ValueError, OSError):
+        pass
+    return None
+
+
+def cache_oauth_client(client: tuple[str, str]) -> None:
+    """Persist discovered Gemini OAuth client credentials with a 24-hour TTL.
+
+    Args:
+        client: ``(client_id, client_secret)`` tuple to cache.
+    """
+    path = _oauth_cache_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with file_lock(path):
+        path.write_text(
+            json.dumps(
+                {
+                    "client_id": client[0],
+                    "client_secret": client[1],
+                    "cached_at": time.time(),
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )

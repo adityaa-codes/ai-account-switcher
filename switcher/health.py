@@ -8,6 +8,8 @@ import re
 import shutil
 import time
 from dataclasses import dataclass, field
+from datetime import datetime
+from datetime import timezone as _tz
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -69,10 +71,24 @@ class ProfileQuotaInfo:
     email: str | None
     quotas: list[QuotaEntry] = field(default_factory=list)
     error: str | None = None
+    tier: str | None = None  # B-2: populated from loadCodeAssist currentTier
 
 
 def _discover_gemini_oauth_client() -> tuple[str, str] | None:
-    """Read OAuth client credentials from installed Gemini CLI, if available."""
+    """Read OAuth client credentials from installed Gemini CLI, if available.
+
+    Tries multiple known file layout paths across Gemini CLI versions.
+    Also checks the 24-hour state cache before hitting disk.
+
+    Returns:
+        ``(client_id, client_secret)`` tuple, or ``None`` if not found.
+    """
+    from switcher.state import cache_oauth_client, get_cached_oauth_client
+
+    cached = get_cached_oauth_client()
+    if cached:
+        return cached
+
     gemini_bin = shutil.which("gemini")
     if not gemini_bin:
         return None
@@ -80,44 +96,51 @@ def _discover_gemini_oauth_client() -> tuple[str, str] | None:
     resolved = Path(gemini_bin).resolve()
     # /.../gemini-cli/dist/index.js -> /.../gemini-cli
     package_root = resolved.parent.parent
-    oauth2_js = (
-        package_root
-        / "node_modules"
-        / "@google"
-        / "gemini-cli-core"
-        / "dist"
-        / "src"
-        / "code_assist"
-        / "oauth2.js"
-    )
-    if not oauth2_js.exists():
-        return None
+    core_root = package_root / "node_modules" / "@google" / "gemini-cli-core"
 
-    try:
-        content = oauth2_js.read_text(encoding="utf-8")
-    except OSError:
-        return None
+    # Try known file layouts across Gemini CLI versions (C-2).
+    candidate_paths = [
+        core_root / "dist" / "src" / "code_assist" / "oauth2.js",
+        core_root / "dist" / "src" / "auth" / "oauth2.js",
+        core_root / "dist" / "src" / "oauth.js",
+    ]
 
-    id_match = re.search(r"OAUTH_CLIENT_ID = '([^']+)'", content)
-    secret_match = re.search(r"OAUTH_CLIENT_SECRET = '([^']+)'", content)
-    if not id_match or not secret_match:
-        return None
-    return id_match.group(1), secret_match.group(1)
+    for oauth2_js in candidate_paths:
+        if not oauth2_js.exists():
+            continue
+        try:
+            content = oauth2_js.read_text(encoding="utf-8")
+        except OSError:
+            continue
+
+        id_match = re.search(r"OAUTH_CLIENT_ID = '([^']+)'", content)
+        secret_match = re.search(r"OAUTH_CLIENT_SECRET = '([^']+)'", content)
+        if id_match and secret_match:
+            result = id_match.group(1), secret_match.group(1)
+            cache_oauth_client(result)
+            return result
+
+    return None
 
 
 def _google_oauth_clients() -> list[tuple[str, str]]:
-    """Return ordered OAuth clients to try for Gemini refresh checks."""
-    clients: list[tuple[str, str]] = []
+    """Return ordered OAuth clients to try for Gemini refresh checks.
 
+    If a client can be discovered from the installed Gemini CLI, only that
+    client is returned — the hardcoded list is used only as a last resort
+    when discovery fails entirely (C-1).
+    """
     discovered = _discover_gemini_oauth_client()
     if discovered:
-        clients.append(discovered)
+        return [discovered]
 
-    for candidate in _KNOWN_GOOGLE_OAUTH_CLIENTS:
-        if candidate not in clients:
-            clients.append(candidate)
-
-    return clients
+    # Discovery failed: fall back to known clients and warn.
+    logger.warning(
+        "Could not discover OAuth client from Gemini CLI — "
+        "using stale hardcoded credentials. "
+        "Run 'gemini' once to refresh the installation."
+    )
+    return list(_KNOWN_GOOGLE_OAUTH_CLIENTS)
 
 
 def _oauth_error_detail(resp: requests.Response) -> tuple[str, str]:
@@ -509,7 +532,14 @@ def fetch_quota_info(profile: Profile) -> ProfileQuotaInfo:
         resp = requests.post(
             _LOAD_CODE_ASSIST_URL,
             headers=headers,
-            json={"supportedFeatures": ["GEMINI_CLI"]},
+            json={
+                "metadata": {
+                    "ideType": "GEMINI_CLI",
+                    "platform": "PLATFORM_UNSPECIFIED",
+                    "pluginType": "GEMINI",
+                },
+                "mode": "HEALTH_CHECK",
+            },
             timeout=_TIMEOUT,
         )
         if resp.status_code != 200:
@@ -519,7 +549,14 @@ def fetch_quota_info(profile: Profile) -> ProfileQuotaInfo:
                 error=f"loadCodeAssist HTTP {resp.status_code}",
             )
 
-        project_id = str(resp.json().get("cloudaicompanionProject", ""))
+        load_body = resp.json()
+        project_id = str(load_body.get("cloudaicompanionProject", ""))
+
+        # B-2: extract tier name from loadCodeAssist response.
+        tier: str | None = None
+        current_tier = load_body.get("currentTier")
+        if isinstance(current_tier, dict):
+            tier = current_tier.get("tierName") or current_tier.get("name")
 
         resp = requests.post(
             _RETRIEVE_QUOTA_URL,
@@ -532,24 +569,33 @@ def fetch_quota_info(profile: Profile) -> ProfileQuotaInfo:
                 email=email,
                 quotas=[],
                 error=f"retrieveUserQuota HTTP {resp.status_code}",
+                tier=tier,
             )
 
         entries: list[QuotaEntry] = []
         for q in resp.json().get("userQuota", []):
             model = str(q.get("modelName", "unknown"))
             remaining_pct = float(q.get("remainingFraction", 1.0)) * 100
-            # Try several possible field names for reset time
-            reset_at = (
+            # Try several possible field names for reset time (B-3).
+            raw_reset = (
                 q.get("currentPeriodEnd")
                 or q.get("periodEnd")
                 or q.get("resetAt")
                 or q.get("quotaRefreshAt")
             )
+            # B-3: normalise Unix epoch integers to ISO 8601 strings.
+            reset_at: str | None = None
+            if isinstance(raw_reset, (int, float)) and raw_reset > 0:
+                reset_at = datetime.fromtimestamp(
+                    raw_reset, tz=_tz.utc
+                ).isoformat()
+            elif isinstance(raw_reset, str) and raw_reset:
+                reset_at = raw_reset
             entries.append(
                 QuotaEntry(model=model, remaining_pct=remaining_pct, reset_at=reset_at)
             )
 
-        return ProfileQuotaInfo(email=email, quotas=entries, error=None)
+        return ProfileQuotaInfo(email=email, quotas=entries, error=None, tier=tier)
 
     except requests.RequestException as exc:
         return ProfileQuotaInfo(email=email, quotas=[], error=f"Network error: {exc}")

@@ -648,3 +648,222 @@ def test_fetch_quota_info_network_error(tmp_path: Path) -> None:
 
     assert qi.error is not None
     assert "Network error" in qi.error
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 — loadCodeAssist mode (B-1) and strftime portability (I-2)
+# ---------------------------------------------------------------------------
+
+
+def test_fetch_quota_info_sends_health_check_mode(tmp_path: Path) -> None:
+    """B-1: loadCodeAssist request must include mode=HEALTH_CHECK."""
+    import json as _json
+
+    from switcher.health import fetch_quota_info
+
+    profile_dir = tmp_path / "p"
+    profile_dir.mkdir()
+    (profile_dir / "oauth_creds.json").write_text(_json.dumps({"access_token": "tok"}))
+    profile = _make_profile(profile_dir, "oauth")
+
+    load_resp = MagicMock()
+    load_resp.status_code = 200
+    load_resp.json.return_value = {"cloudaicompanionProject": "proj-123"}
+
+    quota_resp = MagicMock()
+    quota_resp.status_code = 200
+    quota_resp.json.return_value = {"userQuota": []}
+
+    captured_calls: list = []
+
+    def capture_post(url: str, **kwargs: object) -> MagicMock:
+        captured_calls.append((url, kwargs))
+        if "loadCodeAssist" in url:
+            return load_resp
+        return quota_resp
+
+    with (
+        patch("switcher.health.requests.post", side_effect=capture_post),
+        patch("switcher.health.requests.get") as mock_get,
+    ):
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = {"email": "a@b.com"}
+        fetch_quota_info(profile)
+
+    load_calls = [kw for url, kw in captured_calls if "loadCodeAssist" in url]
+    assert load_calls, "loadCodeAssist must be called"
+    body = load_calls[0].get("json", {})
+    assert body.get("mode") == "HEALTH_CHECK", (
+        "mode must be HEALTH_CHECK to avoid billing side-effects"
+    )
+    assert "metadata" in body, "metadata field must be present"
+
+
+def test_format_reset_date_single_digit_day() -> None:
+    """I-2: _format_reset_date must not use %-d (GNU-only).
+
+    Single-digit day should not have a leading zero.
+    """
+    from switcher.cli import _format_reset_date
+
+    result = _format_reset_date("2025-04-01T00:00:00Z")
+    assert result == "Apr 1 2025", f"Expected 'Apr 1 2025', got '{result}'"
+
+
+def test_format_reset_date_double_digit_day() -> None:
+    """I-2: _format_reset_date sanity check for double-digit day."""
+    from switcher.cli import _format_reset_date
+
+    result = _format_reset_date("2025-04-15T00:00:00Z")
+    assert result == "Apr 15 2025", f"Expected 'Apr 15 2025', got '{result}'"
+
+
+def test_format_reset_date_invalid_input_returns_original() -> None:
+    """I-2: _format_reset_date must return the original string on parse error."""
+    from switcher.cli import _format_reset_date
+
+    bad = "not-a-date"
+    assert _format_reset_date(bad) == bad
+
+
+# ── Phase 2: C-1, C-2, B-2, B-3 ───────────────────────────────────────────
+
+
+
+def test_google_oauth_clients_returns_only_discovered() -> None:
+    """C-1: when discovery succeeds, _google_oauth_clients returns only that client."""
+    from switcher.health import _google_oauth_clients
+
+    with patch(
+        "switcher.health._discover_gemini_oauth_client",
+        return_value=("id1", "sec1"),
+    ):
+        clients = _google_oauth_clients()
+
+    assert clients == [("id1", "sec1")], "Should return exactly the discovered client"
+
+
+def test_google_oauth_clients_falls_back_when_discovery_fails() -> None:
+    """C-1: when discovery returns None, falls back to hardcoded list and warns."""
+    from switcher.health import _KNOWN_GOOGLE_OAUTH_CLIENTS, _google_oauth_clients
+
+    with (
+        patch("switcher.health._discover_gemini_oauth_client", return_value=None),
+        patch("switcher.health.logger") as mock_log,
+    ):
+        clients = _google_oauth_clients()
+
+    assert clients == list(_KNOWN_GOOGLE_OAUTH_CLIENTS), "Should use hardcoded fallback"
+    mock_log.warning.assert_called_once()
+
+
+def test_discover_tries_alternative_paths(tmp_path: Path) -> None:
+    """C-2: _discover_gemini_oauth_client succeeds with auth/oauth2.js layout."""
+    from switcher.health import _discover_gemini_oauth_client
+
+    # Fake gemini binary: tmp_path/dist/index.js  → package_root = tmp_path
+    bin_path = tmp_path / "dist" / "index.js"
+    bin_path.parent.mkdir(parents=True)
+    bin_path.write_text("// stub\n")
+
+    core = tmp_path / "node_modules" / "@google" / "gemini-cli-core"
+    # Place credentials at second candidate path (auth/oauth2.js)
+    alt = core / "dist" / "src" / "auth" / "oauth2.js"
+    alt.parent.mkdir(parents=True)
+    alt.write_text("OAUTH_CLIENT_ID = 'alt_id'\nOAUTH_CLIENT_SECRET = 'alt_sec'\n")
+
+    with (
+        patch("switcher.health.shutil.which", return_value=str(bin_path)),
+        patch("switcher.state.get_cached_oauth_client", return_value=None),
+        patch("switcher.state.cache_oauth_client"),
+    ):
+        result = _discover_gemini_oauth_client()
+
+    assert result == ("alt_id", "alt_sec"), f"Expected alt credentials, got {result!r}"
+
+
+def test_fetch_quota_info_populates_tier(tmp_path: Path) -> None:
+    """B-2: tier field populated from currentTier.tierName in response."""
+    import json
+
+    from switcher.health import fetch_quota_info
+
+    profile_dir = tmp_path / "p"
+    profile_dir.mkdir()
+    (profile_dir / "oauth_creds.json").write_text(json.dumps({"access_token": "tok"}))
+    profile = _make_profile(profile_dir, "oauth")
+
+    load_resp = MagicMock()
+    load_resp.status_code = 200
+    load_resp.json.return_value = {
+        "cloudaicompanionProject": "proj-x",
+        "currentTier": {"tierName": "PREMIUM", "name": "premium"},
+    }
+
+    quota_resp = MagicMock()
+    quota_resp.status_code = 200
+    quota_resp.json.return_value = {"userQuota": []}
+
+    def side_post(url: str, **kw: object) -> MagicMock:
+        return load_resp if "loadCodeAssist" in url else quota_resp
+
+    with (
+        patch("switcher.health.requests.post", side_effect=side_post),
+        patch("switcher.health.requests.get") as mg,
+        patch("switcher.health._google_oauth_clients", return_value=[("id", "sec")]),
+    ):
+        mg.return_value.status_code = 200
+        mg.return_value.json.return_value = {"email": "x@y.com"}
+        info = fetch_quota_info(profile)
+
+    assert info.tier == "PREMIUM", f"Expected tier='PREMIUM', got {info.tier!r}"
+
+
+def test_fetch_quota_info_epoch_reset_normalised(tmp_path: Path) -> None:
+    """B-3: Unix epoch integer reset_at is normalised to ISO 8601 string."""
+    import json
+
+    from switcher.health import fetch_quota_info
+
+    epoch = 1_750_000_000  # a future Unix timestamp
+
+    profile_dir = tmp_path / "p"
+    profile_dir.mkdir()
+    (profile_dir / "oauth_creds.json").write_text(json.dumps({"access_token": "tok"}))
+    profile = _make_profile(profile_dir, "oauth")
+
+    load_resp = MagicMock()
+    load_resp.status_code = 200
+    load_resp.json.return_value = {"cloudaicompanionProject": "proj-y"}
+
+    quota_resp = MagicMock()
+    quota_resp.status_code = 200
+    quota_resp.json.return_value = {
+        "userQuota": [
+            {
+                "modelName": "gemini-2.0-flash",
+                "remainingFraction": 0.5,
+                "resetAt": epoch,
+            }
+        ]
+    }
+
+    def side_post(url: str, **kw: object) -> MagicMock:
+        return load_resp if "loadCodeAssist" in url else quota_resp
+
+    with (
+        patch("switcher.health.requests.post", side_effect=side_post),
+        patch("switcher.health.requests.get") as mg,
+        patch("switcher.health._google_oauth_clients", return_value=[("id", "sec")]),
+    ):
+        mg.return_value.status_code = 200
+        mg.return_value.json.return_value = {"email": "x@y.com"}
+        info = fetch_quota_info(profile)
+
+    assert info.quotas, "Expected at least one quota entry"
+    reset = info.quotas[0].reset_at
+    assert reset is not None, "reset_at should not be None"
+    is_iso = "T" in reset and (
+        "+" in reset or "Z" in reset or reset.endswith("+00:00")
+    )
+    assert is_iso, f"reset_at should be ISO 8601, got {reset!r}"
