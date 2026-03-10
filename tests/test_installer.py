@@ -508,3 +508,90 @@ def test_run_uninstall_nothing_to_remove(tmp_path: Path) -> None:
     ):
         run_uninstall()
     # Should complete without error
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 — idempotent installer (G-1, G-2)
+# ---------------------------------------------------------------------------
+
+
+def test_install_gemini_hooks_replaces_stale_command_on_reinstall(
+    tmp_path: Path,
+) -> None:
+    """G-1: Re-installing should remove stale hook entries and write fresh ones."""
+    settings_path = tmp_path / "settings.json"
+
+    # Simulate a prior install with an old path
+    old_settings = {
+        "hooks": {
+            "AfterAgent": [
+                {
+                    "matcher": "*",
+                    "hooks": [
+                        {
+                            "name": "switcher-auto-rotate",
+                            "type": "command",
+                            "command": "python3 /old/path/gemini_after_agent.py",
+                            "timeout": 10000,
+                        }
+                    ],
+                }
+            ],
+            "BeforeAgent": [],
+        }
+    }
+    settings_path.write_text(json.dumps(old_settings))
+
+    with patch("switcher.installer.get_config_dir", return_value=tmp_path):
+        install_gemini_hooks(settings_path)
+
+    data = json.loads(settings_path.read_text())
+    after_cmds = [
+        h["command"]
+        for group in data["hooks"]["AfterAgent"]
+        for h in group.get("hooks", [])
+        if h.get("name") == "switcher-auto-rotate"
+    ]
+    assert len(after_cmds) == 1, (
+        "must have exactly one AfterAgent switcher hook after reinstall"
+    )
+    assert "/old/path/" not in after_cmds[0], "stale old path must be replaced"
+
+
+def test_install_gemini_hooks_preserves_non_switcher_hooks(tmp_path: Path) -> None:
+    """G-2: Non-switcher hooks and top-level user settings must survive reinstall."""
+    settings_path = tmp_path / "settings.json"
+    user_settings = {
+        "theme": "dark",
+        "mcpServers": {"my-server": {"url": "http://localhost:3000"}},
+        "hooks": {
+            "AfterAgent": [
+                {
+                    "matcher": "*.py",
+                    "hooks": [
+                        {
+                            "name": "user-custom-hook",
+                            "type": "command",
+                            "command": "echo done",
+                        }
+                    ],
+                }
+            ]
+        },
+    }
+    settings_path.write_text(json.dumps(user_settings))
+
+    with patch("switcher.installer.get_config_dir", return_value=tmp_path):
+        install_gemini_hooks(settings_path)
+
+    data = json.loads(settings_path.read_text())
+    assert data["theme"] == "dark", "user theme must be preserved"
+    assert "my-server" in data["mcpServers"], "mcpServers must be preserved"
+
+    # User's custom hook must still be present
+    custom_names = [
+        h["name"]
+        for group in data["hooks"]["AfterAgent"]
+        for h in group.get("hooks", [])
+    ]
+    assert "user-custom-hook" in custom_names, "non-switcher hook must not be removed"

@@ -140,7 +140,10 @@ def _hook_script_path(name: str) -> str:
 def install_gemini_hooks(settings_path: Path | None = None) -> bool:
     """Merge auto-rotation hooks into Gemini settings.json.
 
-    Returns True if hooks were added, False if already present.
+    Removes any stale switcher hook entries first, then writes fresh ones.
+    Non-switcher user fields and hooks are preserved (deep merge).
+
+    Returns True if hooks were added or updated, False if already up-to-date.
     """
     if settings_path is None:
         settings_path = get_gemini_dir() / "settings.json"
@@ -155,58 +158,64 @@ def install_gemini_hooks(settings_path: Path | None = None) -> bool:
             settings = {}
 
     hooks = settings.setdefault("hooks", {})
-    changed = False
 
-    # AfterAgent hook
-    after_list = hooks.setdefault("AfterAgent", [])
-    if not any(
-        h.get("name") == _HOOK_AFTER
-        for group in after_list
-        for h in group.get("hooks", [])
-    ):
-        after_list.append(
-            {
-                "matcher": "*",
-                "hooks": [
-                    {
-                        "name": _HOOK_AFTER,
-                        "type": "command",
-                        "command": (
-                            f"python3 {_hook_script_path('gemini_after_agent.py')}"
-                        ),
-                        "timeout": 10000,
-                        "description": "Auto-switch on quota exhaustion",
-                    }
-                ],
-            }
-        )
-        changed = True
+    after_cmd = f"python3 {_hook_script_path('gemini_after_agent.py')}"
+    before_cmd = f"python3 {_hook_script_path('gemini_before_agent.py')}"
 
-    # BeforeAgent hook
-    before_list = hooks.setdefault("BeforeAgent", [])
-    if not any(
-        h.get("name") == _HOOK_BEFORE
-        for group in before_list
-        for h in group.get("hooks", [])
-    ):
-        before_list.append(
-            {
-                "matcher": "*",
-                "hooks": [
-                    {
-                        "name": _HOOK_BEFORE,
-                        "type": "command",
-                        "command": (
-                            f"python3 {_hook_script_path('gemini_before_agent.py')}"
-                        ),
-                        "timeout": 10000,
-                        "description": "Pre-check quota before request",
-                    }
-                ],
-            }
-        )
-        changed = True
+    def _remove_switcher_hooks(groups: list) -> list:  # type: ignore[type-arg]
+        """Strip any existing switcher hook entries from a hook group list."""
+        cleaned = []
+        for group in groups:
+            filtered = [
+                h
+                for h in group.get("hooks", [])
+                if h.get("name") not in (_HOOK_AFTER, _HOOK_BEFORE)
+            ]
+            if filtered:
+                group = dict(group)
+                group["hooks"] = filtered
+                cleaned.append(group)
+        return cleaned
 
+    # Snapshot what was there before so we can detect changes.
+    before_json = json.dumps(settings, sort_keys=True)
+
+    # Remove stale switcher entries from both hook lists.
+    hooks["AfterAgent"] = _remove_switcher_hooks(hooks.get("AfterAgent", []))
+    hooks["BeforeAgent"] = _remove_switcher_hooks(hooks.get("BeforeAgent", []))
+
+    # Always append fresh entries.
+    hooks["AfterAgent"].append(
+        {
+            "matcher": "*",
+            "hooks": [
+                {
+                    "name": _HOOK_AFTER,
+                    "type": "command",
+                    "command": after_cmd,
+                    "timeout": 10000,
+                    "description": "Auto-switch on quota exhaustion",
+                }
+            ],
+        }
+    )
+    hooks["BeforeAgent"].append(
+        {
+            "matcher": "*",
+            "hooks": [
+                {
+                    "name": _HOOK_BEFORE,
+                    "type": "command",
+                    "command": before_cmd,
+                    "timeout": 10000,
+                    "description": "Pre-check quota before request",
+                }
+            ],
+        }
+    )
+
+    after_json = json.dumps(settings, sort_keys=True)
+    changed = before_json != after_json
     if changed:
         settings_path.write_text(json.dumps(settings, indent=2) + "\n")
     return changed
@@ -319,6 +328,18 @@ def generate_env_sh() -> None:
             if key:
                 lines.append(f'export GEMINI_API_KEY="{key}"')
                 lines.append(f'export GOOGLE_API_KEY="{key}"')
+        # H-1: per-profile GEMINI_SYSTEM_MD
+        try:
+            from switcher.profiles.base import load_meta as _load_meta
+            g_meta = _load_meta(profile_dir)
+            system_md = g_meta.get("system_md_path")
+            if system_md:
+                lines.append(f'export GEMINI_SYSTEM_MD="{system_md}"')
+            # H-2: per-profile GEMINI_WRITE_SYSTEM_MD
+            if g_meta.get("write_system_md"):
+                lines.append("export GEMINI_WRITE_SYSTEM_MD=1")
+        except Exception:
+            pass
 
     # Check Codex active profile for API key
     codex_active = state.get("codex", {}).get("active_profile")
