@@ -49,7 +49,6 @@ Switch between multiple Google Gemini and OpenAI Codex accounts instantly — no
 - **Health checks** — validate tokens and API keys before switching
 - **Live quota display** — `switcher gemini quota` shows quota used per OAuth profile with visual progress bars
 - **Auto-rotation** — Gemini hooks detect quota exhaustion and rotate profiles automatically; hooks safely handle Gemini CLI's `stopHookActive` flag to prevent deadlocks
-- **Per-profile system prompt** — set `GEMINI_SYSTEM_MD` per Gemini profile via `meta.json`; env.sh is auto-updated on switch
 - **Codex isolation** — per-profile memory, plugin list, and sandbox policy snapshots restore automatically on switch
 - **OAuth client caching** — discovered OAuth credentials are cached for 24 hours, reducing startup latency
 - **Interactive menu** — `switcher gemini menu` launches a numbered TUI for profile management without memorising commands
@@ -170,18 +169,6 @@ switcher gemini change 2
 ```bash
 switcher gemini remove personal
 switcher gemini remove 3
-```
-
-#### Per-profile system prompt
-
-Add a `GEMINI_SYSTEM_MD` path to a profile's `meta.json` and it will be injected into `env.sh` automatically when you switch to that profile:
-
-```json
-// ~/.config/ai-account-switcher/profiles/gemini/work/meta.json
-{
-  "label": "work",
-  "system_md": "/home/you/prompts/work-system.md"
-}
 ```
 
 ### Managing Codex Profiles
@@ -534,8 +521,7 @@ switcher config set general.log_level debug
 1. Creates an atomic symlink: `~/.gemini/oauth_creds.json` → profile directory
 2. Writes credentials to the OS keyring (service: `gemini-cli-oauth`, key: `main-account`)
 3. Deletes `~/.gemini/mcp-oauth-tokens.json` (token cache) to avoid stale sessions
-4. Injects `GEMINI_SYSTEM_MD` / `GEMINI_WRITE_SYSTEM_MD` into `env.sh` if set in profile metadata
-5. Next Gemini CLI invocation picks up the new credentials immediately
+4. Next Gemini CLI invocation picks up the new credentials immediately
 
 ### Gemini — API Key Profiles
 1. Writes `GEMINI_API_KEY` and `GOOGLE_API_KEY` to `~/.config/ai-account-switcher/env.sh`

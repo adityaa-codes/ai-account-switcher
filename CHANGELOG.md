@@ -34,9 +34,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and 
 - `switcher/auth/codex_sandbox.py` — snapshots and restores Codex `policy.toml` per profile on every switch.
 - All three are automatically invoked by `CodexProfileManager.switch_to()`.
 
-#### Per-profile system prompt (Gemini)
-- `generate_env_sh()` reads `system_md` and `write_system_md` keys from the active Gemini profile's `meta.json` and appends `export GEMINI_SYSTEM_MD` / `export GEMINI_WRITE_SYSTEM_MD` to `env.sh` on every switch.
-
 #### Alerts and diagnostics
 - `switcher alerts [--lines N]` — tails the last N lines (default 20) of `errors.log`.
 - `switcher version --check` — fetches PyPI to report whether a newer release is available.

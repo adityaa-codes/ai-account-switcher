@@ -328,19 +328,6 @@ def generate_env_sh() -> None:
             if key:
                 lines.append(f'export GEMINI_API_KEY="{key}"')
                 lines.append(f'export GOOGLE_API_KEY="{key}"')
-        # H-1: per-profile GEMINI_SYSTEM_MD
-        try:
-            from switcher.profiles.base import load_meta as _load_meta
-            g_meta = _load_meta(profile_dir)
-            system_md = g_meta.get("system_md_path")
-            if system_md:
-                lines.append(f'export GEMINI_SYSTEM_MD="{system_md}"')
-            # H-2: per-profile GEMINI_WRITE_SYSTEM_MD
-            if g_meta.get("write_system_md"):
-                lines.append("export GEMINI_WRITE_SYSTEM_MD=1")
-        except Exception:
-            pass
-
     # Check Codex active profile for API key
     codex_active = state.get("codex", {}).get("active_profile")
     if codex_active:
