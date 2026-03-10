@@ -55,7 +55,13 @@ def get_platform_string() -> str:
 
 
 def setup_logging(level: str = "info") -> logging.Logger:
-    """Configure rotating file logger for cli-switcher.
+    """Configure rotating file loggers for cli-switcher.
+
+    Creates three log files under ``~/.config/cli-switcher/logs/``:
+
+    * ``switcher.log``  — all messages at the configured level.
+    * ``errors.log``    — ERROR and above only, for quick error triage.
+    * ``commands.log``  — one line per CLI invocation with duration and status.
 
     Args:
         level: Log level string — 'debug', 'info', 'warn', or 'error'.
@@ -65,7 +71,6 @@ def setup_logging(level: str = "info") -> logging.Logger:
     """
     log_dir = get_config_dir() / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / "switcher.log"
 
     logger = logging.getLogger("switcher")
     if logger.handlers:
@@ -74,15 +79,43 @@ def setup_logging(level: str = "info") -> logging.Logger:
     numeric_level = getattr(logging, level.upper(), logging.INFO)
     logger.setLevel(numeric_level)
 
-    handler = RotatingFileHandler(
-        log_file, maxBytes=1_000_000, backupCount=3, encoding="utf-8"
-    )
-    formatter = logging.Formatter(
+    detail_fmt = logging.Formatter(
         "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         datefmt="%Y-%m-%dT%H:%M:%S",
     )
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
+
+    # General log — all messages at the configured level.
+    general_handler = RotatingFileHandler(
+        log_dir / "switcher.log", maxBytes=1_000_000, backupCount=3, encoding="utf-8"
+    )
+    general_handler.setFormatter(detail_fmt)
+    logger.addHandler(general_handler)
+
+    # Error log — ERROR and above only.
+    error_handler = RotatingFileHandler(
+        log_dir / "errors.log", maxBytes=1_000_000, backupCount=3, encoding="utf-8"
+    )
+    error_handler.setLevel(logging.ERROR)
+    error_handler.setFormatter(detail_fmt)
+    logger.addHandler(error_handler)
+
+    # Command log — separate non-propagating logger so command entries don't
+    # bleed into switcher.log.
+    cmd_logger = logging.getLogger("switcher.commands")
+    if not cmd_logger.handlers:
+        cmd_logger.propagate = False
+        cmd_logger.setLevel(logging.INFO)
+        cmd_handler = RotatingFileHandler(
+            log_dir / "commands.log",
+            maxBytes=1_000_000,
+            backupCount=3,
+            encoding="utf-8",
+        )
+        cmd_handler.setFormatter(
+            logging.Formatter("%(asctime)s %(message)s", datefmt="%Y-%m-%dT%H:%M:%S")
+        )
+        cmd_logger.addHandler(cmd_handler)
+
     return logger
 
 
