@@ -78,7 +78,10 @@ Switch between multiple Google Gemini and OpenAI Codex accounts instantly — no
 git clone https://github.com/your-user/ai-account-switcher.git
 cd ai-account-switcher
 
-# 2. Create a virtual environment and install
+# 2. Install from PyPI
+pip install ai-account-switcher
+
+# --- OR install from source (development) ---
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
