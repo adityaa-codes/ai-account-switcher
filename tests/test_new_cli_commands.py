@@ -411,7 +411,7 @@ class TestVersionCheck:
 
         cmd_version(argparse.Namespace(check=False))
         out = capsys.readouterr().out  # type: ignore[attr-defined]
-        assert "cli-switcher" in out
+        assert "ai-account-switcher" in out
 
     def test_version_check_up_to_date(self, capsys: object) -> None:
         """I-4: version --check prints 'Up to date' when versions match."""
@@ -457,4 +457,4 @@ class TestVersionCheck:
 
         # Should not raise; output is just the version line
         out = capsys.readouterr().out  # type: ignore[attr-defined]
-        assert "cli-switcher" in out
+        assert "ai-account-switcher" in out

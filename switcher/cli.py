@@ -1,5 +1,5 @@
 """CLI argument parsing
-and command routing for cli-switcher."""
+and command routing for ai-account-switcher."""
 
 from __future__ import annotations
 
@@ -705,7 +705,7 @@ def cmd_alerts(args: argparse.Namespace) -> None:
 
 def cmd_version(args: argparse.Namespace) -> None:
     """Print version, optionally checking PyPI for updates."""
-    print(f"cli-switcher {__version__}")
+    print(f"ai-account-switcher {__version__}")
 
     if not getattr(args, "check", False):
         return
