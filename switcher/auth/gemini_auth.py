@@ -206,6 +206,11 @@ def activate_oauth_profile(profile_dir: Path, storage_mode: str = "auto") -> Non
     # 3. Clear cache
     clear_gemini_cache()
 
+    # 4. Remove stale Gemini API-key exports while preserving Codex env state.
+    from switcher.auth.codex_auth import write_env_sh
+
+    write_env_sh(gemini_key=None, codex_key=None, clear_gemini=True)
+
 
 def activate_apikey_profile(api_key: str, label: str) -> None:
     """Activate a Gemini API key profile by writing to env.sh.
