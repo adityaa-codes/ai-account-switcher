@@ -57,6 +57,7 @@ def activate_chatgpt_profile(profile_dir: Path) -> None:
     target = codex_dir / "auth.json"
 
     atomic_symlink(auth_file, target)
+    write_env_sh(gemini_key=None, codex_key=None, clear_codex=True)
     logger.info("Activated Codex ChatGPT profile from %s", profile_dir.name)
 
 
