@@ -90,6 +90,31 @@ def test_inject_into_rc_appends_snippet(tmp_path: Path) -> None:
     assert "# existing content" in content
 
 
+def test_inject_into_rc_writes_zsh_posix_snippet(tmp_path: Path) -> None:
+    rc = tmp_path / ".zshrc"
+    rc.write_text("# zsh config\n")
+    with patch("switcher.installer.get_config_dir", return_value=tmp_path):
+        result = inject_into_rc(rc)
+    assert result is True
+    content = rc.read_text()
+    assert 'alias sw=\'switcher\'' in content
+    assert 'command gemini "$@"' in content
+    assert "function gemini" not in content
+
+
+def test_inject_into_rc_writes_fish_snippet(tmp_path: Path) -> None:
+    rc = tmp_path / "config.fish"
+    rc.write_text("# fish config\n")
+    with patch("switcher.installer.get_config_dir", return_value=tmp_path):
+        result = inject_into_rc(rc)
+    assert result is True
+    content = rc.read_text()
+    assert "alias sw switcher" in content
+    assert "function gemini" in content
+    assert "command gemini $argv" in content
+    assert 'command gemini "$@"' not in content
+
+
 def test_inject_into_rc_idempotent(tmp_path: Path) -> None:
     rc = tmp_path / ".bashrc"
     rc.write_text("")
