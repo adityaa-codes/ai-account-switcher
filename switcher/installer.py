@@ -57,9 +57,38 @@ def get_rc_file(shell: str | None = None) -> Path:
 # ---------------------------------------------------------------------------
 
 
-def generate_shell_snippet() -> str:
+def _shell_for_rc_path(rc_path: Path) -> str:
+    """Infer shell type from an RC file path."""
+    if rc_path.name == "config.fish":
+        return "fish"
+    if rc_path.name == ".zshrc":
+        return "zsh"
+    return "bash"
+
+
+def generate_shell_snippet(shell: str | None = None) -> str:
     """Generate the shell integration block."""
     env_sh = get_config_dir() / "env.sh"
+    shell = shell or detect_shell()
+
+    if shell == "fish":
+        return f"""{_MARKER_START}
+# CLI Switcher — shell integration (managed by 'switcher install')
+test -f "{env_sh}"; and source "{env_sh}"
+
+alias sw switcher
+
+function gemini
+    test -f "{env_sh}"; and source "{env_sh}"
+    command gemini $argv
+end
+
+function codex
+    test -f "{env_sh}"; and source "{env_sh}"
+    command codex $argv
+end
+{_MARKER_END}"""
+
     return f"""{_MARKER_START}
 # CLI Switcher — shell integration (managed by 'switcher install')
 [ -f "{env_sh}" ] && source "{env_sh}"
@@ -92,7 +121,7 @@ def inject_into_rc(rc_path: Path) -> bool:
     else:
         content = ""
 
-    snippet = generate_shell_snippet()
+    snippet = generate_shell_snippet(_shell_for_rc_path(rc_path))
     with rc_path.open("a") as f:
         f.write(f"\n{snippet}\n")
     return True

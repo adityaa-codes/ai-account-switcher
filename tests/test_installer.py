@@ -36,16 +36,42 @@ from switcher.installer import (
 
 def test_generate_shell_snippet_contains_markers(tmp_path: Path) -> None:
     with patch("switcher.installer.get_config_dir", return_value=tmp_path):
-        snippet = generate_shell_snippet()
+        snippet = generate_shell_snippet("bash")
     assert "# >>> cli-switcher >>>" in snippet
     assert "# <<< cli-switcher <<<" in snippet
 
 
 def test_generate_shell_snippet_contains_source_env(tmp_path: Path) -> None:
     with patch("switcher.installer.get_config_dir", return_value=tmp_path):
-        snippet = generate_shell_snippet()
+        snippet = generate_shell_snippet("bash")
     assert "env.sh" in snippet
     assert "alias sw=" in snippet
+
+
+def test_generate_shell_snippet_bash_uses_posix_syntax(tmp_path: Path) -> None:
+    with patch("switcher.installer.get_config_dir", return_value=tmp_path):
+        snippet = generate_shell_snippet("bash")
+    assert "[ -f" in snippet
+    assert "alias sw='switcher'" in snippet
+    assert 'command gemini "$@"' in snippet
+
+
+def test_generate_shell_snippet_zsh_uses_posix_syntax(tmp_path: Path) -> None:
+    with patch("switcher.installer.get_config_dir", return_value=tmp_path):
+        snippet = generate_shell_snippet("zsh")
+    assert "[ -f" in snippet
+    assert "alias sw='switcher'" in snippet
+    assert 'command codex "$@"' in snippet
+
+
+def test_generate_shell_snippet_fish_uses_fish_syntax(tmp_path: Path) -> None:
+    with patch("switcher.installer.get_config_dir", return_value=tmp_path):
+        snippet = generate_shell_snippet("fish")
+    assert "test -f" in snippet
+    assert "alias sw switcher" in snippet
+    assert "function gemini" in snippet
+    assert "command gemini $argv" in snippet
+    assert 'command gemini "$@"' not in snippet
 
 
 # ---------------------------------------------------------------------------
