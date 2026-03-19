@@ -52,7 +52,7 @@ Switch between multiple Google Gemini and OpenAI Codex accounts instantly — no
 - **Codex isolation** — per-profile memory, plugin list, and sandbox policy snapshots restore automatically on switch
 - **OAuth client caching** — discovered OAuth credentials are cached for 24 hours, reducing startup latency
 - **Interactive menu** — `switcher gemini menu` launches a numbered TUI for profile management without memorising commands
-- **Shell integration** — `env.sh` sourced per invocation via shell wrappers and aliases
+- **Shell integration** — `env.sh` sourced per invocation via shell wrappers and aliases for bash, zsh, and fish
 - **Import/export** — move profiles between machines or back them up
 - **Pool sub-commands** — `switcher gemini pool health/export/status` for managing the rotation pool
 - **Alerts** — `switcher alerts` tails recent error-log entries for quick diagnostics
@@ -90,8 +90,15 @@ pip install -e .
 switcher install
 
 # 4. Reload your shell
-source ~/.bashrc   # or ~/.zshrc
+source ~/.bashrc         # bash
+source ~/.zshrc          # zsh
+source ~/.config/fish/config.fish   # fish
 ```
+
+`switcher install` writes shell-specific integration to:
+- `~/.bashrc` for bash
+- `~/.zshrc` for zsh
+- `~/.config/fish/config.fish` for fish
 
 ### Verify Installation
 
