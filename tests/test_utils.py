@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 def test_get_config_dir_respects_xdg(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "custom_config"))
     path = get_config_dir()
-    assert path == tmp_path / "custom_config" / "cli-switcher"
+    assert path == tmp_path / "custom_config" / "ai-account-switcher"
 
 
 def test_get_config_dir_falls_back_to_home(
@@ -32,7 +32,42 @@ def test_get_config_dir_falls_back_to_home(
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
     monkeypatch.setenv("HOME", str(tmp_path))
     path = get_config_dir()
-    assert path == tmp_path / ".config" / "cli-switcher"
+    assert path == tmp_path / ".config" / "ai-account-switcher"
+
+
+def test_get_config_dir_migrates_legacy_path(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    legacy_dir = tmp_path / "xdg" / "cli-switcher"
+    legacy_dir.mkdir(parents=True)
+    marker = legacy_dir / "state.json"
+    marker.write_text("{}", encoding="utf-8")
+
+    path = get_config_dir()
+
+    assert path == tmp_path / "xdg" / "ai-account-switcher"
+    assert path.exists()
+    assert not legacy_dir.exists()
+    assert (path / "state.json").read_text(encoding="utf-8") == "{}"
+
+
+def test_get_config_dir_prefers_canonical_path_when_both_exist(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    canonical_dir = tmp_path / "xdg" / "ai-account-switcher"
+    legacy_dir = tmp_path / "xdg" / "cli-switcher"
+    canonical_dir.mkdir(parents=True)
+    legacy_dir.mkdir(parents=True)
+    (canonical_dir / "canonical.txt").write_text("new", encoding="utf-8")
+    (legacy_dir / "legacy.txt").write_text("old", encoding="utf-8")
+
+    path = get_config_dir()
+
+    assert path == canonical_dir
+    assert (canonical_dir / "canonical.txt").read_text(encoding="utf-8") == "new"
+    assert (legacy_dir / "legacy.txt").read_text(encoding="utf-8") == "old"
 
 
 def test_get_codex_dir_respects_codex_home(
@@ -145,7 +180,7 @@ def test_setup_logging_creates_log_file(
     from switcher.utils import setup_logging
 
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    config_dir = tmp_path / "cli-switcher"
+    config_dir = tmp_path / "ai-account-switcher"
     config_dir.mkdir(parents=True)
 
     # Clear any existing handlers to avoid state pollution between tests
@@ -170,7 +205,7 @@ def test_setup_logging_idempotent(tmp_path: Path) -> None:
 
     from switcher.utils import setup_logging
 
-    config_dir = tmp_path / "cli-switcher"
+    config_dir = tmp_path / "ai-account-switcher"
     config_dir.mkdir(parents=True)
 
     logger = logging.getLogger("switcher.idempotent_test")

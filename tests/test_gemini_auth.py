@@ -33,7 +33,9 @@ def test_backup_current_credentials_backs_up_google_accounts(
 
     backup_current_credentials("work")
 
-    profile_dir = tmp_path / ".config" / "cli-switcher" / "profiles" / "gemini" / "work"
+    profile_dir = (
+        tmp_path / ".config" / "ai-account-switcher" / "profiles" / "gemini" / "work"
+    )
     assert (profile_dir / "oauth_creds.json").read_text(
         encoding="utf-8"
     ) == oauth_payload
@@ -118,7 +120,9 @@ def test_backup_current_credentials_recovers_oauth_from_keyring_when_file_empty(
 
     backup_current_credentials("work")
 
-    profile_dir = tmp_path / ".config" / "cli-switcher" / "profiles" / "gemini" / "work"
+    profile_dir = (
+        tmp_path / ".config" / "ai-account-switcher" / "profiles" / "gemini" / "work"
+    )
     creds = json.loads((profile_dir / "oauth_creds.json").read_text(encoding="utf-8"))
     assert creds["accessToken"] == "access-token"
     assert creds["refreshToken"] == "refresh-token"

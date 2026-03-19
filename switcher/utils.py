@@ -16,12 +16,31 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
+APP_CONFIG_DIR = "ai-account-switcher"
+LEGACY_APP_CONFIG_DIR = "cli-switcher"
+
 
 def get_config_dir() -> Path:
-    """Return the XDG-compliant config directory for cli-switcher."""
+    """Return the XDG-compliant config directory for ai-account-switcher.
+
+    Existing installs under the legacy ``cli-switcher`` path are migrated to the
+    canonical directory when possible. If migration fails, keep using the legacy
+    directory rather than risking data loss.
+    """
     xdg = os.environ.get("XDG_CONFIG_HOME")
     base = Path(xdg) if xdg else Path.home() / ".config"
-    return base / "cli-switcher"
+    config_dir = base / APP_CONFIG_DIR
+    legacy_dir = base / LEGACY_APP_CONFIG_DIR
+
+    if config_dir.exists() or not legacy_dir.exists():
+        return config_dir
+
+    try:
+        legacy_dir.rename(config_dir)
+    except OSError:
+        return legacy_dir
+
+    return config_dir
 
 
 def get_gemini_dir() -> Path:
@@ -55,9 +74,9 @@ def get_platform_string() -> str:
 
 
 def setup_logging(level: str = "info") -> logging.Logger:
-    """Configure rotating file loggers for cli-switcher.
+    """Configure rotating file loggers for ai-account-switcher.
 
-    Creates three log files under ``~/.config/cli-switcher/logs/``:
+    Creates three log files under ``~/.config/ai-account-switcher/logs/``:
 
     * ``switcher.log``  — all messages at the configured level.
     * ``errors.log``    — ERROR and above only, for quick error triage.
