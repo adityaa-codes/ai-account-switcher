@@ -37,8 +37,8 @@ from switcher.installer import (
 def test_generate_shell_snippet_contains_markers(tmp_path: Path) -> None:
     with patch("switcher.installer.get_config_dir", return_value=tmp_path):
         snippet = generate_shell_snippet("bash")
-    assert "# >>> cli-switcher >>>" in snippet
-    assert "# <<< cli-switcher <<<" in snippet
+    assert "# >>> ai-account-switcher >>>" in snippet
+    assert "# <<< ai-account-switcher <<<" in snippet
 
 
 def test_generate_shell_snippet_contains_source_env(tmp_path: Path) -> None:
@@ -86,7 +86,7 @@ def test_inject_into_rc_appends_snippet(tmp_path: Path) -> None:
         result = inject_into_rc(rc)
     assert result is True
     content = rc.read_text()
-    assert "# >>> cli-switcher >>>" in content
+    assert "# >>> ai-account-switcher >>>" in content
     assert "# existing content" in content
 
 
@@ -123,6 +123,17 @@ def test_inject_into_rc_idempotent(tmp_path: Path) -> None:
         result = inject_into_rc(rc)
     assert result is False
     # Snippet appears exactly once
+    assert rc.read_text().count("# >>> ai-account-switcher >>>") == 1
+
+
+def test_inject_into_rc_skips_when_legacy_marker_exists(tmp_path: Path) -> None:
+    rc = tmp_path / ".bashrc"
+    rc.write_text("# >>> cli-switcher >>>\nlegacy\n# <<< cli-switcher <<<\n")
+
+    with patch("switcher.installer.get_config_dir", return_value=tmp_path):
+        result = inject_into_rc(rc)
+
+    assert result is False
     assert rc.read_text().count("# >>> cli-switcher >>>") == 1
 
 
@@ -137,9 +148,28 @@ def test_inject_into_rc_creates_file_if_missing(tmp_path: Path) -> None:
 def test_remove_from_rc_removes_snippet(tmp_path: Path) -> None:
     rc = tmp_path / ".bashrc"
     rc.write_text(
-        "before\n# >>> cli-switcher >>>\nstuff\n# <<< cli-switcher <<<\nafter\n"
+        "before\n"
+        "# >>> ai-account-switcher >>>\n"
+        "stuff\n"
+        "# <<< ai-account-switcher <<<\n"
+        "after\n"
     )
     result = remove_from_rc(rc)
+    assert result is True
+    content = rc.read_text()
+    assert "# >>> ai-account-switcher >>>" not in content
+    assert "before" in content
+    assert "after" in content
+
+
+def test_remove_from_rc_removes_legacy_snippet(tmp_path: Path) -> None:
+    rc = tmp_path / ".bashrc"
+    rc.write_text(
+        "before\n# >>> cli-switcher >>>\nstuff\n# <<< cli-switcher <<<\nafter\n"
+    )
+
+    result = remove_from_rc(rc)
+
     assert result is True
     content = rc.read_text()
     assert "# >>> cli-switcher >>>" not in content
@@ -274,7 +304,7 @@ def test_generate_env_sh_writes_gemini_key(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    config_dir = tmp_path / "cli-switcher"
+    config_dir = tmp_path / "ai-account-switcher"
     config_dir.mkdir(parents=True)
     _setup_gemini_profile(config_dir, "work", "gemini-test-key")
     state = {"gemini": {"active_profile": "work"}, "codex": {}}
@@ -295,7 +325,7 @@ def test_generate_env_sh_writes_codex_key(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    config_dir = tmp_path / "cli-switcher"
+    config_dir = tmp_path / "ai-account-switcher"
     config_dir.mkdir(parents=True)
     _setup_codex_profile(config_dir, "work", "sk-test-openai-key")
     state = {"gemini": {}, "codex": {"active_profile": "work"}}
@@ -315,7 +345,7 @@ def test_generate_env_sh_gemini_oauth_codex_apikey_writes_only_codex_key(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    config_dir = tmp_path / "cli-switcher"
+    config_dir = tmp_path / "ai-account-switcher"
     config_dir.mkdir(parents=True)
     _setup_codex_profile(config_dir, "codex-work", "sk-test-openai-key")
 
@@ -345,7 +375,7 @@ def test_generate_env_sh_gemini_apikey_codex_chatgpt_writes_only_gemini_key(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    config_dir = tmp_path / "cli-switcher"
+    config_dir = tmp_path / "ai-account-switcher"
     config_dir.mkdir(parents=True)
     _setup_gemini_profile(config_dir, "gemini-api", "gemini-test-key")
 
@@ -377,7 +407,7 @@ def test_generate_env_sh_both_oauth_writes_header_only(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    config_dir = tmp_path / "cli-switcher"
+    config_dir = tmp_path / "ai-account-switcher"
     config_dir.mkdir(parents=True)
 
     gemini_profile = config_dir / "profiles" / "gemini" / "gemini-oauth"
@@ -411,7 +441,7 @@ def test_generate_env_sh_both_oauth_writes_header_only(
 def test_generate_env_sh_no_active_profile_writes_header_only(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    config_dir = tmp_path / "cli-switcher"
+    config_dir = tmp_path / "ai-account-switcher"
     config_dir.mkdir(parents=True)
     state: dict = {"gemini": {}, "codex": {}}
     (config_dir / "state.json").write_text(json.dumps(state))
@@ -515,7 +545,7 @@ def test_remove_gemini_hooks_corrupt_json_returns_false(tmp_path: Path) -> None:
 def test_generate_env_sh_corrupt_codex_auth_skips_key(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    config_dir = tmp_path / "cli-switcher"
+    config_dir = tmp_path / "ai-account-switcher"
     config_dir.mkdir(parents=True)
     profile_dir = config_dir / "profiles" / "codex" / "work"
     profile_dir.mkdir(parents=True)
