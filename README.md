@@ -524,7 +524,8 @@ switcher config set general.log_level debug
 1. Creates an atomic symlink: `~/.gemini/oauth_creds.json` → profile directory
 2. Writes credentials to the OS keyring (service: `gemini-cli-oauth`, key: `main-account`)
 3. Deletes `~/.gemini/mcp-oauth-tokens.json` (token cache) to avoid stale sessions
-4. Next Gemini CLI invocation picks up the new credentials immediately
+4. Removes stale `GEMINI_API_KEY` and `GOOGLE_API_KEY` exports for Gemini from `env.sh`
+5. Next Gemini CLI invocation picks up the new credentials immediately
 
 ### Gemini — API Key Profiles
 1. Writes `GEMINI_API_KEY` and `GOOGLE_API_KEY` to `~/.config/ai-account-switcher/env.sh`
@@ -539,8 +540,15 @@ switcher config set general.log_level debug
 
 ### Codex — ChatGPT OAuth Profiles
 1. Creates an atomic symlink: `~/.codex/auth.json` → profile directory
-2. Codex CLI reads tokens from the file directly
-3. May require a Codex restart for ChatGPT OAuth (account-ID-gated `reload()`)
+2. Removes stale `OPENAI_API_KEY` exports for Codex from `env.sh`
+3. Codex CLI reads tokens from the file directly
+4. May require a Codex restart for ChatGPT OAuth (account-ID-gated `reload()`)
+
+### Auth Env Precedence
+- `GEMINI_API_KEY` and `GOOGLE_API_KEY` take precedence over Gemini file-based auth when exported.
+- `OPENAI_API_KEY` takes precedence over Codex API-key file state when exported.
+- Switching a CLI from API key to OAuth clears that CLI's env exports to avoid stale auth-mode leaks.
+- Switching one CLI preserves the other CLI's exported API key in `env.sh`.
 
 ---
 
