@@ -45,7 +45,7 @@ def _find_switcher() -> str:
     # Try relative to this script's location
     hooks_dir = Path(__file__).resolve().parent
     # hooks/ is inside switcher/ package during dev,
-    # or inside ~/.config/cli-switcher/hooks/ when installed
+    # or inside ~/.config/ai-account-switcher/hooks/ when installed
     candidates = [
         hooks_dir.parent.parent / "main.py",  # dev: repo root
         Path.home() / ".local" / "bin" / "switcher",  # installed

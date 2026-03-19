@@ -1,4 +1,4 @@
-"""Shared pytest fixtures for cli-switcher tests."""
+"""Shared pytest fixtures for ai-account-switcher tests."""
 
 from __future__ import annotations
 

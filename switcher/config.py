@@ -1,4 +1,4 @@
-"""TOML configuration management for cli-switcher."""
+"""TOML configuration management for ai-account-switcher."""
 
 from __future__ import annotations
 

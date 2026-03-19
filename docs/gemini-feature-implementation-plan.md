@@ -54,7 +54,7 @@ Implement the following external-inspired features in this repo, excluding bilin
 3. Add regression tests for false positives/false negatives in `tests/test_gemini_after_agent_patterns.py`.
 
 ### Feature 6: Crash-safe handoff file between hooks
-1. Add persistent flag file in switcher config dir (suggested: `~/.config/cli-switcher/state/quota_error.json`) managed via `switcher/state.py`.
+1. Add persistent flag file in switcher config dir (suggested: `~/.config/ai-account-switcher/state/quota_error.json`) managed via `switcher/state.py`.
 2. Write flag in AfterAgent before returning retry decision.
 3. Read and clear flag in BeforeAgent before making API calls.
 4. Add TTL/retry-count guard to avoid infinite switch loops.
