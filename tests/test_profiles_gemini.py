@@ -122,6 +122,28 @@ def test_switch_to_apikey_profile(tmp_config_dir: Path, fake_gemini_dir: Path) -
     mock_env.assert_called_once_with(gemini_key="AIzaTestKey123", codex_key=None)
 
 
+def test_switch_to_apikey_profile_preserves_codex_env_var(
+    tmp_config_dir: Path, fake_gemini_dir: Path
+) -> None:
+    from switcher.utils import get_config_dir
+
+    mgr = GeminiProfileManager()
+    profile = mgr.add_profile("api-work", "apikey")
+    (profile.path / "api_key.txt").write_text("AIzaTestKey123\n", encoding="utf-8")
+
+    env_path = get_config_dir() / "env.sh"
+    env_path.parent.mkdir(parents=True, exist_ok=True)
+    env_path.write_text('export OPENAI_API_KEY="sk-codex-keep"\n', encoding="utf-8")
+
+    label = mgr.switch_to("api-work")
+
+    assert label == "api-work"
+    content = env_path.read_text(encoding="utf-8")
+    assert 'export GEMINI_API_KEY="AIzaTestKey123"' in content
+    assert 'export GOOGLE_API_KEY="AIzaTestKey123"' in content
+    assert 'export OPENAI_API_KEY="sk-codex-keep"' in content
+
+
 def test_switch_to_oauth_profile(
     tmp_config_dir: Path, fake_gemini_dir: Path, sample_oauth_creds: dict
 ) -> None:

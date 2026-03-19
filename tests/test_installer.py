@@ -260,6 +260,103 @@ def test_generate_env_sh_writes_codex_key(
     assert 'export OPENAI_API_KEY="sk-test-openai-key"' in env_sh
 
 
+def test_generate_env_sh_gemini_oauth_codex_apikey_writes_only_codex_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    config_dir = tmp_path / "cli-switcher"
+    config_dir.mkdir(parents=True)
+    _setup_codex_profile(config_dir, "codex-work", "sk-test-openai-key")
+
+    gemini_profile = config_dir / "profiles" / "gemini" / "gemini-oauth"
+    gemini_profile.mkdir(parents=True)
+    (gemini_profile / "oauth_creds.json").write_text('{"refreshToken":"rt"}')
+
+    state = {
+        "gemini": {"active_profile": "gemini-oauth"},
+        "codex": {"active_profile": "codex-work"},
+    }
+    (config_dir / "state.json").write_text(json.dumps(state))
+
+    with (
+        patch("switcher.installer.get_config_dir", return_value=config_dir),
+        patch("switcher.state.get_config_dir", return_value=config_dir),
+    ):
+        generate_env_sh()
+
+    env_sh = (config_dir / "env.sh").read_text()
+    assert "GEMINI_API_KEY" not in env_sh
+    assert "GOOGLE_API_KEY" not in env_sh
+    assert 'export OPENAI_API_KEY="sk-test-openai-key"' in env_sh
+
+
+def test_generate_env_sh_gemini_apikey_codex_chatgpt_writes_only_gemini_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    config_dir = tmp_path / "cli-switcher"
+    config_dir.mkdir(parents=True)
+    _setup_gemini_profile(config_dir, "gemini-api", "gemini-test-key")
+
+    codex_profile = config_dir / "profiles" / "codex" / "codex-chatgpt"
+    codex_profile.mkdir(parents=True)
+    (codex_profile / "auth.json").write_text(
+        json.dumps({"tokens": {"refresh_token": "rt"}, "OPENAI_API_KEY": None})
+    )
+
+    state = {
+        "gemini": {"active_profile": "gemini-api"},
+        "codex": {"active_profile": "codex-chatgpt"},
+    }
+    (config_dir / "state.json").write_text(json.dumps(state))
+
+    with (
+        patch("switcher.installer.get_config_dir", return_value=config_dir),
+        patch("switcher.state.get_config_dir", return_value=config_dir),
+    ):
+        generate_env_sh()
+
+    env_sh = (config_dir / "env.sh").read_text()
+    assert 'export GEMINI_API_KEY="gemini-test-key"' in env_sh
+    assert 'export GOOGLE_API_KEY="gemini-test-key"' in env_sh
+    assert "OPENAI_API_KEY" not in env_sh
+
+
+def test_generate_env_sh_both_oauth_writes_header_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    config_dir = tmp_path / "cli-switcher"
+    config_dir.mkdir(parents=True)
+
+    gemini_profile = config_dir / "profiles" / "gemini" / "gemini-oauth"
+    gemini_profile.mkdir(parents=True)
+    (gemini_profile / "oauth_creds.json").write_text('{"refreshToken":"rt"}')
+
+    codex_profile = config_dir / "profiles" / "codex" / "codex-chatgpt"
+    codex_profile.mkdir(parents=True)
+    (codex_profile / "auth.json").write_text(
+        json.dumps({"tokens": {"refresh_token": "rt"}, "OPENAI_API_KEY": None})
+    )
+
+    state = {
+        "gemini": {"active_profile": "gemini-oauth"},
+        "codex": {"active_profile": "codex-chatgpt"},
+    }
+    (config_dir / "state.json").write_text(json.dumps(state))
+
+    with (
+        patch("switcher.installer.get_config_dir", return_value=config_dir),
+        patch("switcher.state.get_config_dir", return_value=config_dir),
+    ):
+        generate_env_sh()
+
+    env_sh = (config_dir / "env.sh").read_text()
+    assert "GEMINI_API_KEY" not in env_sh
+    assert "GOOGLE_API_KEY" not in env_sh
+    assert "OPENAI_API_KEY" not in env_sh
+
+
 def test_generate_env_sh_no_active_profile_writes_header_only(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

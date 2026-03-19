@@ -118,6 +118,39 @@ def test_switch_to_apikey_profile(
     mock_env.assert_called_once()
 
 
+def test_switch_to_apikey_profile_preserves_gemini_env_vars(
+    tmp_config_dir: Path, fake_codex_dir: Path, sample_auth_json: dict
+) -> None:
+    from switcher.utils import get_config_dir
+
+    mgr = CodexProfileManager()
+    profile = mgr.add_profile("api-personal", "apikey")
+    (profile.path / "auth.json").write_text(
+        json.dumps(sample_auth_json), encoding="utf-8"
+    )
+
+    env_path = get_config_dir() / "env.sh"
+    env_path.parent.mkdir(parents=True, exist_ok=True)
+    env_path.write_text(
+        "\n".join(
+            [
+                'export GEMINI_API_KEY="AIza-gemini-keep"',
+                'export GOOGLE_API_KEY="AIza-gemini-keep"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    label = mgr.switch_to("api-personal")
+
+    assert label == "api-personal"
+    content = env_path.read_text(encoding="utf-8")
+    assert 'export GEMINI_API_KEY="AIza-gemini-keep"' in content
+    assert 'export GOOGLE_API_KEY="AIza-gemini-keep"' in content
+    assert f'export OPENAI_API_KEY="{sample_auth_json["OPENAI_API_KEY"]}"' in content
+
+
 def test_switch_to_chatgpt_profile(
     tmp_config_dir: Path, fake_codex_dir: Path, sample_chatgpt_auth_json: dict
 ) -> None:
