@@ -669,6 +669,95 @@ def test_cmd_setup_no_install_mode(capsys: pytest.CaptureFixture) -> None:
     mock_install.assert_not_called()
 
 
+def test_cmd_setup_adopts_both_clis_when_valid(
+    capsys: pytest.CaptureFixture,
+) -> None:
+    from pathlib import Path
+
+    from switcher.cli import cmd_setup
+    from switcher.discovery import AuthDiscoveryResult
+
+    gm_result = AuthDiscoveryResult(
+        cli_name="gemini",
+        path=Path("/tmp/gm/oauth_creds.json"),
+        found=True,
+        valid=True,
+        reason="ok",
+        detected_auth_type="oauth",
+    )
+    cx_result = AuthDiscoveryResult(
+        cli_name="codex",
+        path=Path("/tmp/cx/auth.json"),
+        found=True,
+        valid=True,
+        reason="ok",
+        detected_auth_type="chatgpt",
+    )
+
+    gm_profile = MagicMock()
+    gm_profile.label = "personal-gemini"
+    cx_profile = MagicMock()
+    cx_profile.label = "personal-codex"
+
+    with (
+        patch("switcher.installer.run_install"),
+        patch(
+            "switcher.discovery.discover_existing_auth",
+            return_value={"gemini": gm_result, "codex": cx_result},
+        ),
+        patch("switcher.cli._get_manager", side_effect=[MagicMock(), MagicMock()]),
+        patch(
+            "switcher.discovery.adopt_discovered_auth",
+            side_effect=[gm_profile, cx_profile],
+        ),
+    ):
+        cmd_setup(argparse.Namespace(adopt=True, no_install=False))
+
+    out = capsys.readouterr().out
+    assert "Setup complete" in out
+    assert "gemini: imported as 'personal-gemini'" in out
+    assert "codex: imported as 'personal-codex'" in out
+
+
+def test_cmd_setup_no_existing_credentials_shows_fallback_guidance(
+    capsys: pytest.CaptureFixture,
+) -> None:
+    from pathlib import Path
+
+    from switcher.cli import cmd_setup
+    from switcher.discovery import AuthDiscoveryResult
+
+    gm_result = AuthDiscoveryResult(
+        cli_name="gemini",
+        path=Path("/tmp/gm/oauth_creds.json"),
+        found=False,
+        valid=False,
+        reason="Gemini oauth_creds.json not found",
+        detected_auth_type=None,
+    )
+    cx_result = AuthDiscoveryResult(
+        cli_name="codex",
+        path=Path("/tmp/cx/auth.json"),
+        found=False,
+        valid=False,
+        reason="Codex auth.json not found",
+        detected_auth_type=None,
+    )
+
+    with (
+        patch("switcher.installer.run_install"),
+        patch(
+            "switcher.discovery.discover_existing_auth",
+            return_value={"gemini": gm_result, "codex": cx_result},
+        ),
+    ):
+        cmd_setup(argparse.Namespace(adopt=True, no_install=False))
+
+    out = capsys.readouterr().out
+    assert "no existing credentials were adopted" in out.lower()
+    assert "Next steps:" in out
+
+
 def test_dispatch_gemini_list() -> None:
     parser = build_parser()
     mock_list = MagicMock()
