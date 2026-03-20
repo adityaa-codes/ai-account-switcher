@@ -428,6 +428,14 @@ class TestDoctorCommand:
         args = parser.parse_args(["use", "gemini"])
         assert args.command == "use"
         assert args.cli_name == "gemini"
+        assert args.allow_unknown is False
+
+    def test_build_parser_supports_use_allow_unknown_flag(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["use", "codex", "--allow-unknown"])
+        assert args.command == "use"
+        assert args.cli_name == "codex"
+        assert args.allow_unknown is True
 
     def test_build_parser_supports_fix_command(self) -> None:
         parser = build_parser()
@@ -479,6 +487,7 @@ class TestDoctorCommand:
                     'export GEMINI_API_KEY="AIza-stale"',
                     'export GOOGLE_API_KEY="AIza-stale"',
                     'export OPENAI_API_KEY="sk-stale"',
+                    'export CODEX_API_KEY="sk-stale"',
                     "",
                 ]
             ),
@@ -525,6 +534,7 @@ class TestDoctorCommand:
         assert "issue" in out.lower()
         assert "gemini" in out.lower()
         assert "openai_api_key" in out.lower()
+        assert "codex_api_key" in out.lower()
 
 
 class TestVersionCheck:

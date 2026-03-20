@@ -276,12 +276,12 @@ def cmd_next(_args: argparse.Namespace, cli_name: str) -> None:
     print_success(f"Rotated {cli_name} to: {label}")
 
 
-def _health_rank(status: str) -> int:
+def _health_rank(status: str, *, allow_unknown: bool = False) -> int:
     """Return a rank for profile health selection."""
     return {
         "valid": 4,
         "expiring": 3,
-        "unknown": 2,
+        "unknown": 2 if allow_unknown else -1,
         "revoked": 1,
         "expired": 0,
     }.get(status, -1)
@@ -292,6 +292,7 @@ def cmd_use(args: argparse.Namespace) -> None:
     from switcher.health import check_profile
 
     cli_name = args.cli_name
+    allow_unknown = bool(getattr(args, "allow_unknown", False))
     mgr = _get_manager(cli_name)
     profiles = mgr.list_profiles()
     if not profiles:
@@ -311,7 +312,9 @@ def cmd_use(args: argparse.Namespace) -> None:
     ranked = []
     for profile in profiles:
         status, _detail = check_profile(cli_name, profile)
-        ranked.append((_health_rank(status), profile, status))
+        ranked.append(
+            (_health_rank(status, allow_unknown=allow_unknown), profile, status)
+        )
     ranked.sort(key=lambda item: item[0], reverse=True)
 
     best_rank, best_profile, best_status = ranked[0]
@@ -803,7 +806,13 @@ def cmd_fix(_args: argparse.Namespace) -> None:
     """Repair common auth conflicts in env and symlink state."""
     from switcher.auth.codex_auth import write_env_sh
     from switcher.auth.gemini_auth import clear_gemini_cache
-    from switcher.utils import atomic_symlink, get_codex_dir, get_gemini_dir
+    from switcher.utils import (
+        atomic_symlink,
+        file_lock,
+        get_codex_dir,
+        get_config_dir,
+        get_gemini_dir,
+    )
 
     fixes: list[str] = []
 
@@ -823,23 +832,25 @@ def cmd_fix(_args: argparse.Namespace) -> None:
             None,
         )
 
-    if gm_profile and gm_profile.auth_type == "oauth":
-        write_env_sh(gemini_key=None, codex_key=None, clear_gemini=True)
-        fixes.append("Cleared stale Gemini API-key env exports.")
-        creds = gm_profile.path / "oauth_creds.json"
-        if creds.exists():
-            atomic_symlink(creds, get_gemini_dir() / "oauth_creds.json")
-            fixes.append("Repaired ~/.gemini/oauth_creds.json symlink.")
-        clear_gemini_cache()
-        fixes.append("Cleared Gemini token cache.")
+    lock_file = get_config_dir() / "switch.repair"
+    with file_lock(lock_file):
+        if gm_profile and gm_profile.auth_type == "oauth":
+            write_env_sh(gemini_key=None, codex_key=None, clear_gemini=True)
+            fixes.append("Cleared stale Gemini API-key env exports.")
+            creds = gm_profile.path / "oauth_creds.json"
+            if creds.exists():
+                atomic_symlink(creds, get_gemini_dir() / "oauth_creds.json")
+                fixes.append("Repaired ~/.gemini/oauth_creds.json symlink.")
+            clear_gemini_cache()
+            fixes.append("Cleared Gemini token cache.")
 
-    if cm_profile and cm_profile.auth_type == "chatgpt":
-        write_env_sh(gemini_key=None, codex_key=None, clear_codex=True)
-        fixes.append("Cleared stale Codex API-key env exports.")
-        auth = cm_profile.path / "auth.json"
-        if auth.exists():
-            atomic_symlink(auth, get_codex_dir() / "auth.json")
-            fixes.append("Repaired ~/.codex/auth.json symlink.")
+        if cm_profile and cm_profile.auth_type == "chatgpt":
+            write_env_sh(gemini_key=None, codex_key=None, clear_codex=True)
+            fixes.append("Cleared stale Codex API-key env exports.")
+            auth = cm_profile.path / "auth.json"
+            if auth.exists():
+                atomic_symlink(auth, get_codex_dir() / "auth.json")
+                fixes.append("Repaired ~/.codex/auth.json symlink.")
 
     if not fixes:
         print_info("No active OAuth conflict repairs were needed.")
@@ -913,7 +924,12 @@ def cmd_doctor(_args: argparse.Namespace) -> None:
 
     process_env = {
         key: os.environ.get(key, "")
-        for key in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_KEY")
+        for key in (
+            "GEMINI_API_KEY",
+            "GOOGLE_API_KEY",
+            "OPENAI_API_KEY",
+            "CODEX_API_KEY",
+        )
         if os.environ.get(key)
     }
 
@@ -946,19 +962,32 @@ def cmd_doctor(_args: argparse.Namespace) -> None:
                     "~/.gemini/oauth_creds.json is not a symlink. "
                     "It may contain stale credentials."
                 )
+            expected = (profile.path / "oauth_creds.json").resolve()
+            if gemini_link.is_symlink():
+                try:
+                    target = gemini_link.resolve()
+                    if target != expected:
+                        issues.append(
+                            "~/.gemini/oauth_creds.json points to a different profile "
+                            f"({target}) than active '{profile.label}' ({expected})."
+                        )
+                except OSError as exc:
+                    issues.append(
+                        f"Could not resolve Gemini oauth symlink target: {exc}"
+                    )
 
     if active_codex and active_codex in cm_profiles:
         profile = cm_profiles[active_codex]
         if profile.auth_type == "chatgpt":
-            if file_env.get("OPENAI_API_KEY"):
+            if file_env.get("OPENAI_API_KEY") or file_env.get("CODEX_API_KEY"):
                 issues.append(
                     "Codex active profile is ChatGPT OAuth, but env.sh exports "
-                    "OPENAI_API_KEY."
+                    "OPENAI_API_KEY/CODEX_API_KEY."
                 )
-            if process_env.get("OPENAI_API_KEY"):
+            if process_env.get("OPENAI_API_KEY") or process_env.get("CODEX_API_KEY"):
                 issues.append(
                     "Codex active profile is ChatGPT OAuth, but current shell has "
-                    "OPENAI_API_KEY set."
+                    "OPENAI_API_KEY/CODEX_API_KEY set."
                 )
             if not (profile.path / "auth.json").exists():
                 issues.append(
@@ -970,6 +999,17 @@ def cmd_doctor(_args: argparse.Namespace) -> None:
                     "~/.codex/auth.json is not a symlink. "
                     "It may contain stale credentials."
                 )
+            expected = (profile.path / "auth.json").resolve()
+            if codex_link.is_symlink():
+                try:
+                    target = codex_link.resolve()
+                    if target != expected:
+                        issues.append(
+                            "~/.codex/auth.json points to a different profile "
+                            f"({target}) than active '{profile.label}' ({expected})."
+                        )
+                except OSError as exc:
+                    issues.append(f"Could not resolve Codex auth symlink target: {exc}")
 
     print_info("Running auth diagnostics...")
     if not issues:
@@ -1118,6 +1158,11 @@ def build_parser() -> argparse.ArgumentParser:
         "cli_name",
         choices=("gemini", "codex"),
         help="CLI to activate with healthiest profile",
+    )
+    use_p.add_argument(
+        "--allow-unknown",
+        action="store_true",
+        help="Allow switching to profiles with unknown health status",
     )
     subparsers.add_parser("fix", help="Repair common auth conflicts")
     mode_group = setup_p.add_mutually_exclusive_group()

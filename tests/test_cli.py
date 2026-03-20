@@ -704,6 +704,45 @@ def test_cmd_use_warns_when_no_profiles(capsys: pytest.CaptureFixture) -> None:
     assert "No codex profiles configured" in out
 
 
+def test_cmd_use_skips_unknown_without_allow_unknown(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    from switcher.cli import cmd_use
+
+    p = _make_profile(tmp_path / "u", label="mystery", auth_type="oauth")
+    mgr = _make_manager([p], active=None)
+    with (
+        patch("switcher.cli._get_manager", return_value=mgr),
+        patch("switcher.cli.get_active_profile", return_value=None),
+        patch("switcher.health.check_profile", return_value=("unknown", "network")),
+    ):
+        cmd_use(argparse.Namespace(cli_name="gemini", allow_unknown=False))
+
+    out = capsys.readouterr().out
+    assert "No usable gemini profiles found" in out
+    mgr.switch_to.assert_not_called()
+
+
+def test_cmd_use_can_switch_unknown_when_allowed(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    from switcher.cli import cmd_use
+
+    p = _make_profile(tmp_path / "u", label="mystery", auth_type="oauth")
+    mgr = _make_manager([p], active=None)
+    mgr.switch_to.return_value = "mystery"
+    with (
+        patch("switcher.cli._get_manager", return_value=mgr),
+        patch("switcher.cli.get_active_profile", return_value=None),
+        patch("switcher.health.check_profile", return_value=("unknown", "network")),
+    ):
+        cmd_use(argparse.Namespace(cli_name="gemini", allow_unknown=True))
+
+    out = capsys.readouterr().out
+    assert "Using gemini profile: mystery (unknown)" in out
+    mgr.switch_to.assert_called_once_with("mystery")
+
+
 def test_cmd_fix_no_active_oauth_conflicts(capsys: pytest.CaptureFixture) -> None:
     from switcher.cli import cmd_fix
 
@@ -788,6 +827,54 @@ def test_cmd_fix_repairs_codex_chatgpt_state(
     assert "Applied auth repairs" in out
     mock_env.assert_called_once_with(gemini_key=None, codex_key=None, clear_codex=True)
     mock_link.assert_called_once()
+
+
+def test_cmd_doctor_detects_wrong_symlink_targets(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    from switcher.cli import cmd_doctor
+
+    gm_profile = _make_profile(tmp_path / "g", label="g-oauth", auth_type="oauth")
+    (gm_profile.path / "oauth_creds.json").write_text(
+        json.dumps({"refreshToken": "rt"}), encoding="utf-8"
+    )
+    wrong_gm = tmp_path / "wrong-gm.json"
+    wrong_gm.write_text("{}", encoding="utf-8")
+
+    cm_profile = _make_profile(tmp_path / "c", label="c-oauth", auth_type="chatgpt")
+    (cm_profile.path / "auth.json").write_text(
+        json.dumps({"access_token": "at"}), encoding="utf-8"
+    )
+    wrong_cm = tmp_path / "wrong-cm.json"
+    wrong_cm.write_text("{}", encoding="utf-8")
+
+    gemini_dir = tmp_path / ".gemini"
+    codex_dir = tmp_path / ".codex"
+    gemini_dir.mkdir()
+    codex_dir.mkdir()
+    (gemini_dir / "oauth_creds.json").symlink_to(wrong_gm.resolve())
+    (codex_dir / "auth.json").symlink_to(wrong_cm.resolve())
+
+    gm_mgr = MagicMock()
+    gm_mgr.list_profiles.return_value = [gm_profile]
+    cm_mgr = MagicMock()
+    cm_mgr.list_profiles.return_value = [cm_profile]
+
+    def active(cli: str) -> str | None:
+        return {"gemini": "g-oauth", "codex": "c-oauth"}.get(cli)
+
+    with (
+        patch("switcher.cli.GeminiProfileManager", return_value=gm_mgr),
+        patch("switcher.cli.CodexProfileManager", return_value=cm_mgr),
+        patch("switcher.cli.get_active_profile", side_effect=active),
+        patch("switcher.utils.get_config_dir", return_value=tmp_path),
+        patch("switcher.utils.get_gemini_dir", return_value=gemini_dir),
+        patch("switcher.utils.get_codex_dir", return_value=codex_dir),
+    ):
+        cmd_doctor(argparse.Namespace())
+
+    out = capsys.readouterr().out
+    assert "points to a different profile" in out
 
 
 def test_cmd_setup_fresh_mode_skips_adoption(capsys: pytest.CaptureFixture) -> None:
