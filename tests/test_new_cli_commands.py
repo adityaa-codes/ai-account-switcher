@@ -423,6 +423,17 @@ class TestDoctorCommand:
         args = parser.parse_args(["discover"])
         assert args.command == "discover"
 
+    def test_build_parser_supports_use_command(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["use", "gemini"])
+        assert args.command == "use"
+        assert args.cli_name == "gemini"
+
+    def test_build_parser_supports_fix_command(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["fix"])
+        assert args.command == "fix"
+
     def test_build_parser_supports_setup_fresh_mode(self) -> None:
         parser = build_parser()
         args = parser.parse_args(["setup", "--fresh"])

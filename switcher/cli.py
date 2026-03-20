@@ -276,6 +276,55 @@ def cmd_next(_args: argparse.Namespace, cli_name: str) -> None:
     print_success(f"Rotated {cli_name} to: {label}")
 
 
+def _health_rank(status: str) -> int:
+    """Return a rank for profile health selection."""
+    return {
+        "valid": 4,
+        "expiring": 3,
+        "unknown": 2,
+        "revoked": 1,
+        "expired": 0,
+    }.get(status, -1)
+
+
+def cmd_use(args: argparse.Namespace) -> None:
+    """Use the best available profile for the requested CLI."""
+    from switcher.health import check_profile
+
+    cli_name = args.cli_name
+    mgr = _get_manager(cli_name)
+    profiles = mgr.list_profiles()
+    if not profiles:
+        print_warning(f"No {cli_name} profiles configured.")
+        return
+
+    active = get_active_profile(cli_name)
+    active_profile = next((p for p in profiles if p.label == active), None)
+    if active_profile is not None:
+        active_status, _ = check_profile(cli_name, active_profile)
+        if active_status in {"valid", "expiring"}:
+            print_success(
+                f"{cli_name} is ready with active profile: {active_profile.label}"
+            )
+            return
+
+    ranked = []
+    for profile in profiles:
+        status, _detail = check_profile(cli_name, profile)
+        ranked.append((_health_rank(status), profile, status))
+    ranked.sort(key=lambda item: item[0], reverse=True)
+
+    best_rank, best_profile, best_status = ranked[0]
+    if best_rank < 0:
+        print_warning(f"No usable {cli_name} profiles found.")
+        return
+
+    switched = mgr.switch_to(best_profile.label)
+    print_success(f"Using {cli_name} profile: {switched} ({best_status})")
+    if best_profile.auth_type in {"oauth", "chatgpt"}:
+        print_info(f"Restart {cli_name} CLI to apply OAuth changes.")
+
+
 def cmd_add(args: argparse.Namespace, cli_name: str) -> None:
     """Add a new profile."""
     label = args.label
@@ -750,6 +799,57 @@ def cmd_discover(_args: argparse.Namespace) -> None:
     _adopt_discovered_credentials()
 
 
+def cmd_fix(_args: argparse.Namespace) -> None:
+    """Repair common auth conflicts in env and symlink state."""
+    from switcher.auth.codex_auth import write_env_sh
+    from switcher.auth.gemini_auth import clear_gemini_cache
+    from switcher.utils import atomic_symlink, get_codex_dir, get_gemini_dir
+
+    fixes: list[str] = []
+
+    gm_active = get_active_profile("gemini")
+    cm_active = get_active_profile("codex")
+
+    gm_profile = None
+    if gm_active:
+        gm_profile = next(
+            (p for p in GeminiProfileManager().list_profiles() if p.label == gm_active),
+            None,
+        )
+    cm_profile = None
+    if cm_active:
+        cm_profile = next(
+            (p for p in CodexProfileManager().list_profiles() if p.label == cm_active),
+            None,
+        )
+
+    if gm_profile and gm_profile.auth_type == "oauth":
+        write_env_sh(gemini_key=None, codex_key=None, clear_gemini=True)
+        fixes.append("Cleared stale Gemini API-key env exports.")
+        creds = gm_profile.path / "oauth_creds.json"
+        if creds.exists():
+            atomic_symlink(creds, get_gemini_dir() / "oauth_creds.json")
+            fixes.append("Repaired ~/.gemini/oauth_creds.json symlink.")
+        clear_gemini_cache()
+        fixes.append("Cleared Gemini token cache.")
+
+    if cm_profile and cm_profile.auth_type == "chatgpt":
+        write_env_sh(gemini_key=None, codex_key=None, clear_codex=True)
+        fixes.append("Cleared stale Codex API-key env exports.")
+        auth = cm_profile.path / "auth.json"
+        if auth.exists():
+            atomic_symlink(auth, get_codex_dir() / "auth.json")
+            fixes.append("Repaired ~/.codex/auth.json symlink.")
+
+    if not fixes:
+        print_info("No active OAuth conflict repairs were needed.")
+        return
+
+    print_success("Applied auth repairs:")
+    for line in fixes:
+        print_success(f"  ✔ {line}")
+
+
 def cmd_alerts(args: argparse.Namespace) -> None:
     """Show recent error log entries from errors.log.
 
@@ -1013,6 +1113,13 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("uninstall", help="Remove shell + hook integration")
     setup_p = subparsers.add_parser("setup", help="Run guided setup")
     subparsers.add_parser("discover", help="Discover and adopt existing credentials")
+    use_p = subparsers.add_parser("use", help="Use best available profile")
+    use_p.add_argument(
+        "cli_name",
+        choices=("gemini", "codex"),
+        help="CLI to activate with healthiest profile",
+    )
+    subparsers.add_parser("fix", help="Repair common auth conflicts")
     mode_group = setup_p.add_mutually_exclusive_group()
     mode_group.add_argument(
         "--adopt",
@@ -1144,6 +1251,14 @@ def _dispatch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None
 
     if command == "discover":
         cmd_discover(args)
+        return
+
+    if command == "use":
+        cmd_use(args)
+        return
+
+    if command == "fix":
+        cmd_fix(args)
         return
 
     if command == "alerts":

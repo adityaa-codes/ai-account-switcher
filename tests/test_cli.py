@@ -575,6 +575,20 @@ def test_dispatch_discover_command() -> None:
     mock_discover.assert_called_once()
 
 
+def test_dispatch_use_command() -> None:
+    parser = build_parser()
+    with patch("switcher.cli.cmd_use") as mock_use:
+        _dispatch(parser, argparse.Namespace(command="use", cli_name="gemini"))
+    mock_use.assert_called_once()
+
+
+def test_dispatch_fix_command() -> None:
+    parser = build_parser()
+    with patch("switcher.cli.cmd_fix") as mock_fix:
+        _dispatch(parser, argparse.Namespace(command="fix"))
+    mock_fix.assert_called_once()
+
+
 def test_cmd_setup_imports_discovered_credentials(
     capsys: pytest.CaptureFixture,
 ) -> None:
@@ -630,6 +644,53 @@ def test_cmd_discover_uses_adoption_flow(capsys: pytest.CaptureFixture) -> None:
     with patch("switcher.cli._adopt_discovered_credentials") as mock_adopt:
         cmd_discover(argparse.Namespace())
     mock_adopt.assert_called_once()
+
+
+def test_cmd_use_prefers_valid_active_profile(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    from switcher.cli import cmd_use
+
+    profile = _make_profile(tmp_path / "a", label="work", auth_type="oauth")
+    mgr = _make_manager([profile], active="work")
+
+    with (
+        patch("switcher.cli._get_manager", return_value=mgr),
+        patch("switcher.cli.get_active_profile", return_value="work"),
+        patch("switcher.health.check_profile", return_value=("valid", "ok")),
+    ):
+        cmd_use(argparse.Namespace(cli_name="gemini"))
+
+    out = capsys.readouterr().out
+    assert "ready with active profile" in out
+    mgr.switch_to.assert_not_called()
+
+
+def test_cmd_use_switches_to_healthiest_profile(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    from switcher.cli import cmd_use
+
+    p1 = _make_profile(tmp_path / "a", label="expired", auth_type="oauth")
+    p2 = _make_profile(tmp_path / "b", label="good", auth_type="oauth")
+    mgr = _make_manager([p1, p2], active="expired")
+    mgr.switch_to.return_value = "good"
+
+    def side(cli_name: str, profile: MagicMock) -> tuple[str, str]:
+        if profile.label == "expired":
+            return "expired", "no"
+        return "valid", "ok"
+
+    with (
+        patch("switcher.cli._get_manager", return_value=mgr),
+        patch("switcher.cli.get_active_profile", return_value="expired"),
+        patch("switcher.health.check_profile", side_effect=side),
+    ):
+        cmd_use(argparse.Namespace(cli_name="gemini"))
+
+    out = capsys.readouterr().out
+    assert "Using gemini profile: good" in out
+    mgr.switch_to.assert_called_once_with("good")
 
 
 def test_cmd_setup_fresh_mode_skips_adoption(capsys: pytest.CaptureFixture) -> None:
