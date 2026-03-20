@@ -675,8 +675,51 @@ def cmd_uninstall(_args: argparse.Namespace) -> None:
 
 
 def cmd_setup(_args: argparse.Namespace) -> None:
-    """Run guided setup workflow (implementation added in follow-up task)."""
-    print_info("Setup workflow is being prepared. For now run: switcher install")
+    """Run guided setup: install integration and adopt existing credentials."""
+    from switcher.discovery import adopt_discovered_auth, discover_existing_auth
+    from switcher.installer import run_install
+
+    run_install()
+
+    print()
+    print_info("Scanning for existing Gemini/Codex credentials...")
+    results = discover_existing_auth()
+
+    imported: list[str] = []
+    skipped: list[str] = []
+
+    for cli_name in ("gemini", "codex"):
+        result = results[cli_name]
+        if not result.found:
+            skipped.append(f"{cli_name}: {result.reason}")
+            continue
+        if not result.valid:
+            skipped.append(f"{cli_name}: {result.reason}")
+            continue
+
+        manager = _get_manager(cli_name)
+        profile = adopt_discovered_auth(result, manager)
+        if profile is None:
+            skipped.append(f"{cli_name}: Could not adopt credentials")
+            continue
+        imported.append(f"{cli_name}: imported as '{profile.label}'")
+
+    print()
+    if imported:
+        print_success("Setup complete.")
+        for line in imported:
+            print_success(f"  ✔ {line}")
+    else:
+        print_warning("Setup complete, but no existing credentials were adopted.")
+
+    for line in skipped:
+        print_info(f"  • {line}")
+
+    print()
+    print_info("Next steps:")
+    print_info("  1) Run: switcher status")
+    print_info("  2) Run: switcher gemini health")
+    print_info("  3) Run: switcher codex health")
 
 
 def cmd_alerts(args: argparse.Namespace) -> None:

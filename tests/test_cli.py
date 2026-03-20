@@ -568,6 +568,55 @@ def test_dispatch_setup_command() -> None:
     mock_setup.assert_called_once()
 
 
+def test_cmd_setup_imports_discovered_credentials(
+    capsys: pytest.CaptureFixture,
+) -> None:
+    from pathlib import Path
+
+    from switcher.cli import cmd_setup
+    from switcher.discovery import AuthDiscoveryResult
+
+    gm_result = AuthDiscoveryResult(
+        cli_name="gemini",
+        path=Path("/tmp/gm/oauth_creds.json"),
+        found=True,
+        valid=True,
+        reason="ok",
+        detected_auth_type="oauth",
+    )
+    cx_result = AuthDiscoveryResult(
+        cli_name="codex",
+        path=Path("/tmp/cx/auth.json"),
+        found=False,
+        valid=False,
+        reason="not found",
+        detected_auth_type=None,
+    )
+
+    imported_profile = MagicMock()
+    imported_profile.label = "personal-gemini"
+
+    with (
+        patch("switcher.installer.run_install"),
+        patch(
+            "switcher.discovery.discover_existing_auth",
+            return_value={"gemini": gm_result, "codex": cx_result},
+        ),
+        patch("switcher.cli._get_manager") as mock_get_mgr,
+        patch(
+            "switcher.discovery.adopt_discovered_auth",
+            side_effect=[imported_profile],
+        ),
+    ):
+        mock_get_mgr.return_value = MagicMock()
+        cmd_setup(argparse.Namespace())
+
+    out = capsys.readouterr().out
+    assert "Setup complete" in out
+    assert "personal-gemini" in out
+    assert "codex: not found" in out
+
+
 def test_dispatch_gemini_list() -> None:
     parser = build_parser()
     mock_list = MagicMock()
