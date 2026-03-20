@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import json
 from typing import TYPE_CHECKING
+from unittest.mock import MagicMock
 
 from switcher.discovery import (
+    adopt_discovered_auth,
+    default_adopt_label,
     discover_codex_auth,
     discover_existing_auth,
     discover_gemini_auth,
@@ -98,3 +101,55 @@ def test_discover_existing_auth_uses_default_locations(tmp_path: Path) -> None:
 
     assert results["gemini"].valid is True
     assert results["codex"].valid is True
+
+
+def test_default_adopt_label_is_deterministic_and_unique() -> None:
+    label = default_adopt_label("gemini", {"personal-gemini", "work"})
+    assert label == "personal-gemini-2"
+
+    label2 = default_adopt_label(
+        "gemini", {"personal-gemini", "personal-gemini-2"}
+    )
+    assert label2 == "personal-gemini-3"
+
+
+def test_adopt_discovered_auth_returns_none_when_invalid(tmp_path: Path) -> None:
+    result = discover_gemini_auth(tmp_path / "missing.json")
+    mgr = MagicMock()
+    adopted = adopt_discovered_auth(result, mgr)
+    assert adopted is None
+    mgr.import_credentials.assert_not_called()
+
+
+def test_adopt_discovered_auth_imports_with_default_label(tmp_path: Path) -> None:
+    creds = tmp_path / "oauth_creds.json"
+    creds.write_text(json.dumps({"refreshToken": "rt"}), encoding="utf-8")
+    result = discover_gemini_auth(creds)
+
+    existing_profile = MagicMock()
+    existing_profile.label = "personal-gemini"
+    manager = MagicMock()
+    manager.list_profiles.return_value = [existing_profile]
+    imported = MagicMock()
+    manager.import_credentials.return_value = imported
+
+    adopted = adopt_discovered_auth(result, manager)
+    assert adopted is imported
+    manager.import_credentials.assert_called_once_with(
+        creds, "personal-gemini-2"
+    )
+
+
+def test_adopt_discovered_auth_respects_explicit_label(tmp_path: Path) -> None:
+    auth = tmp_path / "auth.json"
+    auth.write_text(json.dumps({"OPENAI_API_KEY": "sk-test"}), encoding="utf-8")
+    result = discover_codex_auth(auth)
+
+    manager = MagicMock()
+    manager.list_profiles.return_value = []
+    imported = MagicMock()
+    manager.import_credentials.return_value = imported
+
+    adopted = adopt_discovered_auth(result, manager, label="my-codex")
+    assert adopted is imported
+    manager.import_credentials.assert_called_once_with(auth, "my-codex")

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from switcher.auth.codex_auth import detect_auth_type
 from switcher.errors import AuthError
@@ -12,6 +12,18 @@ from switcher.utils import get_codex_dir, get_gemini_dir
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from switcher.profiles.base import Profile
+
+
+class _ImportManager(Protocol):
+    """Protocol for profile manager methods used during auth adoption."""
+
+    def list_profiles(self) -> list[Profile]:
+        """List existing profiles."""
+
+    def import_credentials(self, path: Path, label: str) -> Profile:
+        """Import auth credentials into a newly created profile."""
 
 
 @dataclass(slots=True)
@@ -124,3 +136,42 @@ def discover_existing_auth() -> dict[str, AuthDiscoveryResult]:
     gemini = discover_gemini_auth()
     codex = discover_codex_auth()
     return {"gemini": gemini, "codex": codex}
+
+
+def _ensure_unique_label(base: str, existing: set[str]) -> str:
+    """Return a label unique against *existing* using stable numeric suffixes."""
+    if base not in existing:
+        return base
+    i = 2
+    while f"{base}-{i}" in existing:
+        i += 1
+    return f"{base}-{i}"
+
+
+def default_adopt_label(
+    cli_name: str,
+    existing_labels: set[str],
+) -> str:
+    """Return deterministic default label for adopted credentials."""
+    base = {
+        "gemini": "personal-gemini",
+        "codex": "personal-codex",
+    }.get(cli_name, f"personal-{cli_name}")
+    return _ensure_unique_label(base, existing_labels)
+
+
+def adopt_discovered_auth(
+    result: AuthDiscoveryResult,
+    manager: _ImportManager,
+    label: str | None = None,
+) -> Profile | None:
+    """Import discovered credentials using a non-destructive copy-based flow.
+
+    Returns the imported profile, or ``None`` when discovery was not valid.
+    """
+    if not result.found or not result.valid:
+        return None
+
+    existing_labels = {p.label for p in manager.list_profiles()}
+    target_label = label or default_adopt_label(result.cli_name, existing_labels)
+    return manager.import_credentials(result.path, target_label)
