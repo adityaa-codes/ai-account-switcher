@@ -169,7 +169,9 @@ def write_env_sh(
             elif line.startswith("export OPENAI_API_KEY=") or line.startswith(
                 "export CODEX_API_KEY="
             ):
-                existing_codex = line.split("=", 1)[1].strip('"').strip("'")
+                parsed_codex = line.split("=", 1)[1].strip('"').strip("'")
+                if line.startswith("export OPENAI_API_KEY=") or existing_codex is None:
+                    existing_codex = parsed_codex
 
     final_gemini = None if clear_gemini else (
         gemini_key if gemini_key is not None else existing_gemini

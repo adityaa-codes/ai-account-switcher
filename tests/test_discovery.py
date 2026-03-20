@@ -93,6 +93,19 @@ def test_discover_gemini_auth_keyring_only_signal(tmp_path: Path) -> None:
     assert result.detected_auth_type == "oauth"
 
 
+def test_discover_gemini_auth_keyring_probe_failure_is_non_fatal(
+    tmp_path: Path,
+) -> None:
+    from unittest.mock import patch
+
+    with patch("switcher.discovery.keyring_read", side_effect=RuntimeError("boom")):
+        result = discover_gemini_auth(tmp_path / "oauth_creds.json")
+
+    assert result.found is False
+    assert result.valid is False
+    assert "not found" in result.reason.lower()
+
+
 def test_discover_codex_auth_keyring_mode_signal(tmp_path: Path) -> None:
     from unittest.mock import patch
 
@@ -102,6 +115,17 @@ def test_discover_codex_auth_keyring_mode_signal(tmp_path: Path) -> None:
     assert result.found is True
     assert result.valid is False
     assert "keyring-backed" in result.reason.lower()
+
+
+def test_discover_codex_auth_missing_file_in_file_mode(tmp_path: Path) -> None:
+    from unittest.mock import patch
+
+    with patch("switcher.discovery.detect_keyring_mode", return_value="file"):
+        result = discover_codex_auth(tmp_path / "auth.json")
+
+    assert result.found is False
+    assert result.valid is False
+    assert "not found" in result.reason.lower()
 
 
 def test_discover_existing_auth_uses_default_locations(tmp_path: Path) -> None:

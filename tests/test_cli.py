@@ -829,6 +829,30 @@ def test_cmd_fix_repairs_codex_chatgpt_state(
     mock_link.assert_called_once()
 
 
+def test_cmd_fix_handles_missing_active_profile_records(
+    capsys: pytest.CaptureFixture,
+) -> None:
+    from switcher.cli import cmd_fix
+
+    gm = MagicMock()
+    gm.list_profiles.return_value = []
+    cm = MagicMock()
+    cm.list_profiles.return_value = []
+
+    with (
+        patch(
+            "switcher.cli.get_active_profile",
+            side_effect=lambda cli: "ghost-g" if cli == "gemini" else "ghost-c",
+        ),
+        patch("switcher.cli.GeminiProfileManager", return_value=gm),
+        patch("switcher.cli.CodexProfileManager", return_value=cm),
+    ):
+        cmd_fix(argparse.Namespace())
+
+    out = capsys.readouterr().out
+    assert "No active OAuth conflict repairs were needed" in out
+
+
 def test_cmd_doctor_detects_wrong_symlink_targets(
     tmp_path: Path, capsys: pytest.CaptureFixture
 ) -> None:
@@ -870,6 +894,41 @@ def test_cmd_doctor_detects_wrong_symlink_targets(
         patch("switcher.utils.get_config_dir", return_value=tmp_path),
         patch("switcher.utils.get_gemini_dir", return_value=gemini_dir),
         patch("switcher.utils.get_codex_dir", return_value=codex_dir),
+    ):
+        cmd_doctor(argparse.Namespace())
+
+    out = capsys.readouterr().out
+    assert "points to a different profile" in out
+
+
+def test_cmd_doctor_reports_symlink_resolution_errors(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    from switcher.cli import cmd_doctor
+
+    gm_profile = _make_profile(tmp_path / "g", label="g-oauth", auth_type="oauth")
+    (gm_profile.path / "oauth_creds.json").write_text(
+        json.dumps({"refreshToken": "rt"}), encoding="utf-8"
+    )
+    gm_mgr = MagicMock()
+    gm_mgr.list_profiles.return_value = [gm_profile]
+    cm_mgr = MagicMock()
+    cm_mgr.list_profiles.return_value = []
+
+    gemini_dir = tmp_path / ".gemini"
+    gemini_dir.mkdir()
+    bad_link = gemini_dir / "oauth_creds.json"
+    bad_link.symlink_to((tmp_path / "missing-target.json").resolve())
+
+    def active(cli: str) -> str | None:
+        return "g-oauth" if cli == "gemini" else None
+
+    with (
+        patch("switcher.cli.GeminiProfileManager", return_value=gm_mgr),
+        patch("switcher.cli.CodexProfileManager", return_value=cm_mgr),
+        patch("switcher.cli.get_active_profile", side_effect=active),
+        patch("switcher.utils.get_config_dir", return_value=tmp_path),
+        patch("switcher.utils.get_gemini_dir", return_value=gemini_dir),
     ):
         cmd_doctor(argparse.Namespace())
 

@@ -384,6 +384,52 @@ def test_write_env_sh_reads_existing_codex_api_key_alias(tmp_path: Path) -> None
     assert 'export CODEX_API_KEY="existing-codex"' in content
 
 
+def test_write_env_sh_prefers_openai_alias_when_both_present(tmp_path: Path) -> None:
+    from switcher.auth.codex_auth import write_env_sh
+
+    env_path = tmp_path / "env.sh"
+    env_path.write_text(
+        "\n".join(
+            [
+                'export OPENAI_API_KEY="openai-wins"',
+                'export CODEX_API_KEY="codex-loses"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with patch("switcher.auth.codex_auth.get_config_dir", return_value=tmp_path):
+        write_env_sh(gemini_key=None, codex_key=None)
+
+    content = env_path.read_text(encoding="utf-8")
+    assert 'export OPENAI_API_KEY="openai-wins"' in content
+    assert 'export CODEX_API_KEY="openai-wins"' in content
+
+
+def test_write_env_sh_clear_codex_removes_both_aliases(tmp_path: Path) -> None:
+    from switcher.auth.codex_auth import write_env_sh
+
+    env_path = tmp_path / "env.sh"
+    env_path.write_text(
+        "\n".join(
+            [
+                'export OPENAI_API_KEY="sk-key"',
+                'export CODEX_API_KEY="sk-key"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with patch("switcher.auth.codex_auth.get_config_dir", return_value=tmp_path):
+        write_env_sh(gemini_key=None, codex_key=None, clear_codex=True)
+
+    content = env_path.read_text(encoding="utf-8")
+    assert "OPENAI_API_KEY" not in content
+    assert "CODEX_API_KEY" not in content
+
+
 def test_write_env_sh_both_keys(tmp_path: Path) -> None:
     from switcher.auth.codex_auth import write_env_sh
 
