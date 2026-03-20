@@ -410,6 +410,12 @@ class TestDoctorCommand:
             _dispatch(parser, argparse.Namespace(command="doctor"))
         mock_doctor.assert_called_once()
 
+    def test_build_parser_supports_setup_command(self) -> None:
+        """Setup command is available in parser."""
+        parser = build_parser()
+        args = parser.parse_args(["setup"])
+        assert args.command == "setup"
+
     def test_doctor_no_issues(self, tmp_path: Path, capsys: object) -> None:
         """Doctor prints success when no auth conflicts are detected."""
         from switcher.cli import cmd_doctor

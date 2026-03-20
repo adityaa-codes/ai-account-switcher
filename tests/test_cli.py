@@ -561,6 +561,13 @@ def test_dispatch_uninstall_command() -> None:
     mock_uninst.assert_called_once()
 
 
+def test_dispatch_setup_command() -> None:
+    parser = build_parser()
+    with patch("switcher.cli.cmd_setup") as mock_setup:
+        _dispatch(parser, argparse.Namespace(command="setup"))
+    mock_setup.assert_called_once()
+
+
 def test_dispatch_gemini_list() -> None:
     parser = build_parser()
     mock_list = MagicMock()

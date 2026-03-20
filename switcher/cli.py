@@ -674,6 +674,11 @@ def cmd_uninstall(_args: argparse.Namespace) -> None:
     run_uninstall()
 
 
+def cmd_setup(_args: argparse.Namespace) -> None:
+    """Run guided setup workflow (implementation added in follow-up task)."""
+    print_info("Setup workflow is being prepared. For now run: switcher install")
+
+
 def cmd_alerts(args: argparse.Namespace) -> None:
     """Show recent error log entries from errors.log.
 
@@ -935,6 +940,7 @@ def build_parser() -> argparse.ArgumentParser:
     # install / uninstall
     subparsers.add_parser("install", help="Install shell + hook integration")
     subparsers.add_parser("uninstall", help="Remove shell + hook integration")
+    subparsers.add_parser("setup", help="Run guided setup")
 
     # alerts — show recent error log entries
     alerts_p = subparsers.add_parser("alerts", help="Show recent error log entries")
@@ -1039,6 +1045,10 @@ def _dispatch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None
 
     if command == "uninstall":
         cmd_uninstall(args)
+        return
+
+    if command == "setup":
+        cmd_setup(args)
         return
 
     if command == "alerts":
