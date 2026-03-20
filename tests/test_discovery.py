@@ -30,6 +30,7 @@ def test_discover_gemini_auth_valid_nested_token(tmp_path: Path) -> None:
     result = discover_gemini_auth(path)
     assert result.found is True
     assert result.valid is True
+    assert result.detected_auth_type == "oauth"
 
 
 def test_discover_gemini_auth_invalid_payload(tmp_path: Path) -> None:
@@ -40,6 +41,7 @@ def test_discover_gemini_auth_invalid_payload(tmp_path: Path) -> None:
     assert result.found is True
     assert result.valid is False
     assert "missing oauth token fields" in result.reason.lower()
+    assert result.detected_auth_type is None
 
 
 def test_discover_codex_auth_valid_flat_api_key(tmp_path: Path) -> None:
@@ -49,6 +51,7 @@ def test_discover_codex_auth_valid_flat_api_key(tmp_path: Path) -> None:
     result = discover_codex_auth(path)
     assert result.found is True
     assert result.valid is True
+    assert result.detected_auth_type == "apikey"
 
 
 def test_discover_codex_auth_invalid(tmp_path: Path) -> None:
@@ -59,6 +62,17 @@ def test_discover_codex_auth_invalid(tmp_path: Path) -> None:
     assert result.found is True
     assert result.valid is False
     assert "invalid" in result.reason.lower()
+    assert result.detected_auth_type is None
+
+
+def test_discover_codex_auth_valid_chatgpt(tmp_path: Path) -> None:
+    path = tmp_path / "auth.json"
+    path.write_text(json.dumps({"access_token": "at-123", "account_id": "acct"}))
+
+    result = discover_codex_auth(path)
+    assert result.found is True
+    assert result.valid is True
+    assert result.detected_auth_type == "chatgpt"
 
 
 def test_discover_existing_auth_uses_default_locations(tmp_path: Path) -> None:

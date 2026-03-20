@@ -23,6 +23,7 @@ class AuthDiscoveryResult:
     found: bool
     valid: bool
     reason: str
+    detected_auth_type: str | None = None
 
 
 def _has_gemini_oauth_tokens(payload: dict[str, object]) -> bool:
@@ -48,6 +49,7 @@ def discover_gemini_auth(path: Path | None = None) -> AuthDiscoveryResult:
             found=False,
             valid=False,
             reason="Gemini oauth_creds.json not found",
+            detected_auth_type=None,
         )
 
     try:
@@ -59,6 +61,7 @@ def discover_gemini_auth(path: Path | None = None) -> AuthDiscoveryResult:
             found=True,
             valid=False,
             reason="Gemini oauth_creds.json is not valid JSON",
+            detected_auth_type=None,
         )
 
     if not isinstance(payload, dict) or not _has_gemini_oauth_tokens(payload):
@@ -68,6 +71,7 @@ def discover_gemini_auth(path: Path | None = None) -> AuthDiscoveryResult:
             found=True,
             valid=False,
             reason="Gemini oauth_creds.json is missing OAuth token fields",
+            detected_auth_type=None,
         )
 
     return AuthDiscoveryResult(
@@ -76,6 +80,7 @@ def discover_gemini_auth(path: Path | None = None) -> AuthDiscoveryResult:
         found=True,
         valid=True,
         reason="Gemini OAuth credentials discovered",
+        detected_auth_type="oauth",
     )
 
 
@@ -89,10 +94,11 @@ def discover_codex_auth(path: Path | None = None) -> AuthDiscoveryResult:
             found=False,
             valid=False,
             reason="Codex auth.json not found",
+            detected_auth_type=None,
         )
 
     try:
-        detect_auth_type(auth_path)
+        detected_auth_type = detect_auth_type(auth_path)
     except AuthError as exc:
         return AuthDiscoveryResult(
             cli_name="codex",
@@ -100,6 +106,7 @@ def discover_codex_auth(path: Path | None = None) -> AuthDiscoveryResult:
             found=True,
             valid=False,
             reason=f"Codex auth.json is invalid: {exc}",
+            detected_auth_type=None,
         )
 
     return AuthDiscoveryResult(
@@ -108,6 +115,7 @@ def discover_codex_auth(path: Path | None = None) -> AuthDiscoveryResult:
         found=True,
         valid=True,
         reason="Codex credentials discovered",
+        detected_auth_type=detected_auth_type,
     )
 
 
