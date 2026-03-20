@@ -61,6 +61,7 @@ def test_activate_oauth_profile_symlinks_google_accounts_and_clears_cache(
     gemini_dir = tmp_path / ".gemini"
     gemini_dir.mkdir(parents=True)
     (gemini_dir / "mcp-oauth-tokens.json").write_text("stale", encoding="utf-8")
+    (gemini_dir / "a2a-oauth-tokens.json").write_text("stale", encoding="utf-8")
 
     activate_oauth_profile(profile_dir, storage_mode="file")
 
@@ -71,6 +72,7 @@ def test_activate_oauth_profile_symlinks_google_accounts_and_clears_cache(
     assert accounts_target.is_symlink()
     assert accounts_target.resolve() == accounts_file.resolve()
     assert not (gemini_dir / "mcp-oauth-tokens.json").exists()
+    assert not (gemini_dir / "a2a-oauth-tokens.json").exists()
 
 
 def test_activate_oauth_profile_removes_stale_google_accounts_when_profile_missing(
@@ -127,6 +129,8 @@ def test_backup_current_credentials_recovers_oauth_from_keyring_when_file_empty(
     assert creds["accessToken"] == "access-token"
     assert creds["refreshToken"] == "refresh-token"
     assert (profile_dir / "keyring_creds.json").exists()
+    assert (profile_dir / "oauth_creds.json").stat().st_mode & 0o777 == 0o600
+    assert (profile_dir / "keyring_creds.json").stat().st_mode & 0o777 == 0o600
 
 
 def test_activate_oauth_profile_recovers_from_profile_keyring_backup(
@@ -155,3 +159,4 @@ def test_activate_oauth_profile_recovers_from_profile_keyring_backup(
     creds = json.loads((profile_dir / "oauth_creds.json").read_text(encoding="utf-8"))
     assert creds["accessToken"] == "access-token"
     assert creds["refreshToken"] == "refresh-token"
+    assert (profile_dir / "oauth_creds.json").stat().st_mode & 0o777 == 0o600

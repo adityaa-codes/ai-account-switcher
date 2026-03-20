@@ -149,6 +149,7 @@ def test_switch_to_apikey_profile_preserves_gemini_env_vars(
     assert 'export GEMINI_API_KEY="AIza-gemini-keep"' in content
     assert 'export GOOGLE_API_KEY="AIza-gemini-keep"' in content
     assert f'export OPENAI_API_KEY="{sample_auth_json["OPENAI_API_KEY"]}"' in content
+    assert f'export CODEX_API_KEY="{sample_auth_json["OPENAI_API_KEY"]}"' in content
 
 
 def test_switch_to_chatgpt_profile(
@@ -197,6 +198,7 @@ def test_switch_to_chatgpt_profile_clears_codex_env_var(
                 'export GEMINI_API_KEY="AIza-gemini-keep"',
                 'export GOOGLE_API_KEY="AIza-gemini-keep"',
                 'export OPENAI_API_KEY="sk-test-key-abc"',
+                'export CODEX_API_KEY="sk-test-key-abc"',
                 "",
             ]
         ),
@@ -209,6 +211,7 @@ def test_switch_to_chatgpt_profile_clears_codex_env_var(
     assert 'export GEMINI_API_KEY="AIza-gemini-keep"' in content
     assert 'export GOOGLE_API_KEY="AIza-gemini-keep"' in content
     assert "OPENAI_API_KEY" not in content
+    assert "CODEX_API_KEY" not in content
 
 
 def test_switch_next_rotates(
@@ -246,6 +249,7 @@ def test_import_credentials_apikey(
 
     assert profile.auth_type == "apikey"
     assert (profile.path / "auth.json").exists()
+    assert (profile.path / "auth.json").stat().st_mode & 0o777 == 0o600
 
 
 def test_import_credentials_flat_chatgpt_auth_detected(
@@ -276,6 +280,7 @@ def test_import_plain_api_key_creates_auth_json(
 
     auth = json.loads((profile.path / "auth.json").read_text(encoding="utf-8"))
     assert auth.get("OPENAI_API_KEY") == "sk-test-key-12345"
+    assert (profile.path / "auth.json").stat().st_mode & 0o777 == 0o600
 
 
 def test_import_credentials_file_not_found_raises(tmp_config_dir: Path) -> None:
@@ -303,6 +308,7 @@ def test_export_profile_to_directory(
     assert out.exists()
     exported = json.loads(out.read_text(encoding="utf-8"))
     assert exported["OPENAI_API_KEY"] == sample_auth_json["OPENAI_API_KEY"]
+    assert out.stat().st_mode & 0o777 == 0o600
 
 
 def test_active_profile_marked_in_list(
@@ -346,6 +352,7 @@ def test_write_env_sh_writes_codex_key(tmp_path: Path) -> None:
         write_env_sh(gemini_key=None, codex_key="sk-openai-456")
     content = env_path.read_text()
     assert 'export OPENAI_API_KEY="sk-openai-456"' in content
+    assert 'export CODEX_API_KEY="sk-openai-456"' in content
 
 
 def test_write_env_sh_preserves_existing_gemini(tmp_path: Path) -> None:
@@ -360,6 +367,21 @@ def test_write_env_sh_preserves_existing_gemini(tmp_path: Path) -> None:
     content = env_path.read_text()
     assert 'export GEMINI_API_KEY="existing-gemini"' in content
     assert 'export OPENAI_API_KEY="sk-new-codex"' in content
+    assert 'export CODEX_API_KEY="sk-new-codex"' in content
+
+
+def test_write_env_sh_reads_existing_codex_api_key_alias(tmp_path: Path) -> None:
+    from switcher.auth.codex_auth import write_env_sh
+
+    env_path = tmp_path / "env.sh"
+    env_path.write_text('export CODEX_API_KEY="existing-codex"\n', encoding="utf-8")
+
+    with patch("switcher.auth.codex_auth.get_config_dir", return_value=tmp_path):
+        write_env_sh(gemini_key=None, codex_key=None)
+
+    content = env_path.read_text(encoding="utf-8")
+    assert 'export OPENAI_API_KEY="existing-codex"' in content
+    assert 'export CODEX_API_KEY="existing-codex"' in content
 
 
 def test_write_env_sh_both_keys(tmp_path: Path) -> None:
@@ -371,6 +393,7 @@ def test_write_env_sh_both_keys(tmp_path: Path) -> None:
     content = env_path.read_text()
     assert "GEMINI_API_KEY" in content
     assert "OPENAI_API_KEY" in content
+    assert "CODEX_API_KEY" in content
 
 
 def test_activate_chatgpt_profile_missing_auth_raises(

@@ -142,6 +142,7 @@ def test_switch_to_apikey_profile_preserves_codex_env_var(
     assert 'export GEMINI_API_KEY="AIzaTestKey123"' in content
     assert 'export GOOGLE_API_KEY="AIzaTestKey123"' in content
     assert 'export OPENAI_API_KEY="sk-codex-keep"' in content
+    assert 'export CODEX_API_KEY="sk-codex-keep"' in content
 
 
 def test_switch_to_oauth_profile(
@@ -187,6 +188,7 @@ def test_switch_to_oauth_profile_clears_gemini_env_vars(
                 'export GEMINI_API_KEY="AIzaTestKey123"',
                 'export GOOGLE_API_KEY="AIzaTestKey123"',
                 'export OPENAI_API_KEY="sk-codex-keep"',
+                'export CODEX_API_KEY="sk-codex-keep"',
                 "",
             ]
         ),
@@ -200,6 +202,7 @@ def test_switch_to_oauth_profile_clears_gemini_env_vars(
     assert "GEMINI_API_KEY" not in content
     assert "GOOGLE_API_KEY" not in content
     assert 'export OPENAI_API_KEY="sk-codex-keep"' in content
+    assert 'export CODEX_API_KEY="sk-codex-keep"' in content
 
 
 def test_switch_next_rotates(
@@ -236,6 +239,7 @@ def test_import_credentials_oauth(tmp_config_dir: Path, tmp_path: Path) -> None:
     profile = mgr.import_credentials(creds_file, "imported")
     assert profile.auth_type == "oauth"
     assert (profile.path / "oauth_creds.json").exists()
+    assert (profile.path / "oauth_creds.json").stat().st_mode & 0o777 == 0o600
 
 
 def test_import_credentials_apikey(tmp_config_dir: Path, tmp_path: Path) -> None:
@@ -245,6 +249,7 @@ def test_import_credentials_apikey(tmp_config_dir: Path, tmp_path: Path) -> None
     profile = mgr.import_credentials(key_file, "api-imported")
     assert profile.auth_type == "apikey"
     assert (profile.path / "api_key.txt").exists()
+    assert (profile.path / "api_key.txt").stat().st_mode & 0o777 == 0o600
 
 
 def test_import_credentials_file_not_found_raises(tmp_config_dir: Path) -> None:
@@ -272,6 +277,7 @@ def test_export_profile_to_directory(
     assert out.exists()
     exported = json.loads(out.read_text(encoding="utf-8"))
     assert exported["refreshToken"] == sample_oauth_creds["refreshToken"]
+    assert out.stat().st_mode & 0o777 == 0o600
 
 
 def test_active_profile_marked_in_list(

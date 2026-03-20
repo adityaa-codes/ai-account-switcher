@@ -67,6 +67,7 @@ def _sync_oauth_from_keyring_blob(profile_dir: Path, keyring_blob: str) -> bool:
 
     creds_file = profile_dir / "oauth_creds.json"
     creds_file.write_text(json.dumps(oauth_creds, indent=2) + "\n", encoding="utf-8")
+    creds_file.chmod(0o600)
     return True
 
 
@@ -100,6 +101,7 @@ def backup_current_credentials(profile_label: str) -> None:
         # Read through symlink and write actual content
         content = creds_path.read_text(encoding="utf-8")
         target.write_text(content, encoding="utf-8")
+        target.chmod(0o600)
         logger.debug("Backed up oauth_creds.json for %s", profile_label)
 
     # Backup cached Google account identity shown in Gemini UI.
@@ -116,6 +118,7 @@ def backup_current_credentials(profile_label: str) -> None:
         if keyring_data:
             keyring_file = profile_dir / "keyring_creds.json"
             keyring_file.write_text(keyring_data, encoding="utf-8")
+            keyring_file.chmod(0o600)
             logger.debug("Backed up keyring credentials for %s", profile_label)
 
             # When Gemini stores tokens in keyring mode, oauth_creds.json can be
@@ -230,6 +233,7 @@ def clear_gemini_cache() -> None:
     gemini_dir = get_gemini_dir()
     cache_files = [
         gemini_dir / "mcp-oauth-tokens.json",
+        gemini_dir / "a2a-oauth-tokens.json",
     ]
     for cache_file in cache_files:
         if cache_file.exists():

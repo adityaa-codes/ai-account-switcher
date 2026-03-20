@@ -32,7 +32,9 @@ def _extract_auth_fields(data: dict[str, Any]) -> tuple[str | None, bool]:
     Supports both the legacy nested ``tokens`` shape and newer flat auth.json
     layouts that store ``api_key`` / ``access_token`` at the top level.
     """
-    api_key = data.get("OPENAI_API_KEY") or data.get("api_key")
+    api_key = data.get("OPENAI_API_KEY") or data.get("CODEX_API_KEY") or data.get(
+        "api_key"
+    )
     if api_key is not None:
         api_key = str(api_key)
 
@@ -164,7 +166,9 @@ def write_env_sh(
                 existing_gemini = line.split("=", 1)[1].strip('"').strip("'")
             elif line.startswith("export GOOGLE_API_KEY="):
                 pass  # Will be regenerated from gemini_key
-            elif line.startswith("export OPENAI_API_KEY="):
+            elif line.startswith("export OPENAI_API_KEY=") or line.startswith(
+                "export CODEX_API_KEY="
+            ):
                 existing_codex = line.split("=", 1)[1].strip('"').strip("'")
 
     final_gemini = None if clear_gemini else (
@@ -180,6 +184,7 @@ def write_env_sh(
         lines.append(f'export GOOGLE_API_KEY="{final_gemini}"')
     if final_codex:
         lines.append(f'export OPENAI_API_KEY="{final_codex}"')
+        lines.append(f'export CODEX_API_KEY="{final_codex}"')
     lines.append("")  # trailing newline
 
     env_path.write_text("\n".join(lines), encoding="utf-8")
