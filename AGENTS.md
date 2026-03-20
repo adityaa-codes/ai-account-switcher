@@ -18,13 +18,14 @@ Set up and develop locally:
 - `python3 -m venv .venv && source .venv/bin/activate`
 - `pip install -e ".[dev]"` installs editable package with dev tools.
 - `switcher version` verifies CLI wiring.
+- Prefer the project virtualenv for all local commands in this repo. Use `./.venv/bin/<tool>` when not running from an activated shell.
 
 Quality checks:
-- `pytest` runs tests.
-- `pytest --cov=switcher --cov-report=term-missing` checks coverage.
-- `ruff check switcher/ tests/` runs lint rules.
-- `ruff format --check switcher/ tests/` enforces formatting.
-- `mypy switcher/` runs strict static typing.
+- `./.venv/bin/pytest` runs tests.
+- `./.venv/bin/pytest --cov=switcher --cov-report=term-missing` checks coverage.
+- `./.venv/bin/ruff check switcher/ tests/` runs lint rules.
+- `./.venv/bin/ruff format --check switcher/ tests/` enforces formatting.
+- `./.venv/bin/mypy switcher/` runs strict static typing.
 
 ## Coding Style & Naming Conventions
 - Target Python 3.10+ with type hints on all public functions.
@@ -43,5 +44,5 @@ Git history follows Conventional Commit style (`feat:`, `docs:`, `build:`, `chor
 
 For PRs:
 - Keep commits atomic and logically grouped.
-- Run `ruff check && ruff format --check && mypy switcher/ && pytest` before opening.
+- Run `./.venv/bin/ruff check switcher/ tests/ && ./.venv/bin/ruff format --check switcher/ tests/ && ./.venv/bin/mypy switcher/ && ./.venv/bin/pytest` before opening.
 - Include a concise description, linked issue(s), and terminal output/screenshots when behavior or UX changes.
