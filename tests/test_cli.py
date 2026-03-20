@@ -693,6 +693,103 @@ def test_cmd_use_switches_to_healthiest_profile(
     mgr.switch_to.assert_called_once_with("good")
 
 
+def test_cmd_use_warns_when_no_profiles(capsys: pytest.CaptureFixture) -> None:
+    from switcher.cli import cmd_use
+
+    mgr = _make_manager([])
+    with patch("switcher.cli._get_manager", return_value=mgr):
+        cmd_use(argparse.Namespace(cli_name="codex"))
+
+    out = capsys.readouterr().out
+    assert "No codex profiles configured" in out
+
+
+def test_cmd_fix_no_active_oauth_conflicts(capsys: pytest.CaptureFixture) -> None:
+    from switcher.cli import cmd_fix
+
+    with (
+        patch("switcher.cli.get_active_profile", return_value=None),
+        patch("switcher.cli.GeminiProfileManager") as gm,
+        patch("switcher.cli.CodexProfileManager") as cm,
+    ):
+        gm.return_value.list_profiles.return_value = []
+        cm.return_value.list_profiles.return_value = []
+        cmd_fix(argparse.Namespace())
+
+    out = capsys.readouterr().out
+    assert "No active OAuth conflict repairs were needed" in out
+
+
+def test_cmd_fix_repairs_gemini_oauth_state(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    from switcher.cli import cmd_fix
+
+    profile = _make_profile(tmp_path / "g", label="g-active", auth_type="oauth")
+    (profile.path / "oauth_creds.json").write_text(
+        json.dumps({"refreshToken": "rt"}),
+        encoding="utf-8",
+    )
+
+    gm = MagicMock()
+    gm.list_profiles.return_value = [profile]
+    cm = MagicMock()
+    cm.list_profiles.return_value = []
+
+    with (
+        patch(
+            "switcher.cli.get_active_profile",
+            side_effect=lambda cli: "g-active" if cli == "gemini" else None,
+        ),
+        patch("switcher.cli.GeminiProfileManager", return_value=gm),
+        patch("switcher.cli.CodexProfileManager", return_value=cm),
+        patch("switcher.auth.codex_auth.write_env_sh") as mock_env,
+        patch("switcher.utils.atomic_symlink") as mock_link,
+        patch("switcher.auth.gemini_auth.clear_gemini_cache") as mock_cache,
+    ):
+        cmd_fix(argparse.Namespace())
+
+    out = capsys.readouterr().out
+    assert "Applied auth repairs" in out
+    mock_env.assert_called_once_with(gemini_key=None, codex_key=None, clear_gemini=True)
+    mock_link.assert_called_once()
+    mock_cache.assert_called_once()
+
+
+def test_cmd_fix_repairs_codex_chatgpt_state(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    from switcher.cli import cmd_fix
+
+    profile = _make_profile(tmp_path / "c", label="c-active", auth_type="chatgpt")
+    (profile.path / "auth.json").write_text(
+        json.dumps({"access_token": "at"}),
+        encoding="utf-8",
+    )
+
+    gm = MagicMock()
+    gm.list_profiles.return_value = []
+    cm = MagicMock()
+    cm.list_profiles.return_value = [profile]
+
+    with (
+        patch(
+            "switcher.cli.get_active_profile",
+            side_effect=lambda cli: "c-active" if cli == "codex" else None,
+        ),
+        patch("switcher.cli.GeminiProfileManager", return_value=gm),
+        patch("switcher.cli.CodexProfileManager", return_value=cm),
+        patch("switcher.auth.codex_auth.write_env_sh") as mock_env,
+        patch("switcher.utils.atomic_symlink") as mock_link,
+    ):
+        cmd_fix(argparse.Namespace())
+
+    out = capsys.readouterr().out
+    assert "Applied auth repairs" in out
+    mock_env.assert_called_once_with(gemini_key=None, codex_key=None, clear_codex=True)
+    mock_link.assert_called_once()
+
+
 def test_cmd_setup_fresh_mode_skips_adoption(capsys: pytest.CaptureFixture) -> None:
     from switcher.cli import cmd_setup
 
