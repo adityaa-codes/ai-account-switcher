@@ -437,6 +437,17 @@ Health checks verify:
 | Already logged in but profile not visible in switcher | Credentials not adopted yet | `switcher discover` |
 | Fresh machine setup confusion | Shell integration/adopt flow not run yet | `switcher setup` |
 
+### Acceptance Smoke Check
+
+Run the local acceptance script to verify three paths quickly:
+- adopt existing login state (`discover`)
+- fresh setup guidance (`setup --fresh --no-install`)
+- diagnostics/remediation (`doctor` and `fix`)
+
+```bash
+bash scripts/acceptance-smoke.sh
+```
+
 ### Pool Management
 
 The `pool` sub-commands offer a focused view of the rotation pool:
