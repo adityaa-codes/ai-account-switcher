@@ -248,6 +248,23 @@ def test_import_credentials_apikey(
     assert (profile.path / "auth.json").exists()
 
 
+def test_import_credentials_flat_chatgpt_auth_detected(
+    tmp_config_dir: Path, tmp_path: Path
+) -> None:
+    auth_file = tmp_path / "auth.json"
+    auth_file.write_text(
+        json.dumps({"access_token": "at-123", "account_id": "acct_123"}),
+        encoding="utf-8",
+    )
+
+    mgr = CodexProfileManager()
+    profile = mgr.import_credentials(auth_file, "imported-chatgpt")
+
+    assert profile.auth_type == "chatgpt"
+    imported = json.loads((profile.path / "auth.json").read_text(encoding="utf-8"))
+    assert imported["access_token"] == "at-123"
+
+
 def test_import_plain_api_key_creates_auth_json(
     tmp_config_dir: Path, tmp_path: Path
 ) -> None:

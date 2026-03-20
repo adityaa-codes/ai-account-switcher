@@ -158,6 +158,19 @@ def _oauth_error_detail(resp: requests.Response) -> tuple[str, str]:
     return error, description
 
 
+def _retryable_public_client_error(resp: requests.Response) -> bool:
+    """Return True when the OAuth client should be retried without secret.
+
+    Google may reject a refresh request with either HTTP 400 or 401 when the
+    current Gemini CLI OAuth client behaves like a public client.
+    """
+    error, _ = _oauth_error_detail(resp)
+    return resp.status_code in (400, 401) and error in (
+        "invalid_client",
+        "unauthorized_client",
+    )
+
+
 def _format_refresh_error(resp: requests.Response) -> str:
     """Create a human-readable refresh failure message."""
     error, description = _oauth_error_detail(resp)
@@ -241,11 +254,7 @@ def check_gemini_oauth(profile_dir: Path) -> tuple[str, str]:
 
             # Some environments treat Gemini as a public OAuth client and reject
             # client_secret. Retry once without secret before classifying.
-            error, _ = _oauth_error_detail(resp)
-            if resp.status_code == 401 and error in (
-                "invalid_client",
-                "unauthorized_client",
-            ):
+            if _retryable_public_client_error(resp):
                 retry = requests.post(
                     _GOOGLE_TOKEN_URL,
                     data={
@@ -349,10 +358,24 @@ def check_codex_chatgpt(
         return "expired", f"Cannot parse auth.json: {exc}"
 
     tokens = data.get("tokens")
-    if not tokens or not isinstance(tokens, dict):
-        return "expired", "No tokens found in auth.json"
+    refresh_token = None
+    access_token = None
+    if isinstance(tokens, dict):
+        refresh_token = tokens.get("refresh_token")
+        access_token = tokens.get("access_token")
 
-    refresh_token = tokens.get("refresh_token")
+    # Newer Codex auth.json layouts may flatten token fields.
+    if not refresh_token:
+        refresh_token = data.get("refresh_token")
+    if not access_token:
+        access_token = data.get("access_token")
+
+    if not refresh_token and access_token:
+        return "unknown", (
+            "Stored OAuth access token found, but refresh validation is not "
+            "available for this auth.json format"
+        )
+
     if not refresh_token:
         return "expired", "No refresh token found"
 
@@ -367,8 +390,20 @@ def check_codex_chatgpt(
         )
         if resp.status_code == 200:
             return "valid", "Token refreshed successfully"
+        error, description = _oauth_error_detail(resp)
+        if resp.status_code == 400 and access_token:
+            detail = (
+                "Refresh rejected with HTTP 400, but an OAuth access token is "
+                "stored; this Codex auth format may not support refresh "
+                "validation"
+            )
+            if error:
+                detail += f" ({error})"
+            if description:
+                detail += f" - {description}"
+            return "unknown", detail
         status = interpret_http_status(resp.status_code)
-        return status, f"Refresh failed: HTTP {resp.status_code}"
+        return status, _format_refresh_error(resp)
     except requests.RequestException as exc:
         return "unknown", f"Network error: {exc}"
 
@@ -403,7 +438,7 @@ def check_profile(cli_name: str, profile: Profile) -> tuple[str, str]:
             try:
                 with auth_file.open("r", encoding="utf-8") as f:
                     data = json.load(f)
-                api_key = data.get("OPENAI_API_KEY", "")
+                api_key = data.get("OPENAI_API_KEY") or data.get("api_key") or ""
             except (json.JSONDecodeError, OSError):
                 return "expired", "Cannot parse auth.json"
             if not api_key:

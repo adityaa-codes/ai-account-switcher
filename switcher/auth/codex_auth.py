@@ -15,6 +15,40 @@ if TYPE_CHECKING:
 logger = logging.getLogger("switcher.auth.codex")
 
 
+def _read_auth_json(auth_json_path: Path) -> dict[str, Any]:
+    """Read a Codex auth.json payload."""
+    try:
+        with auth_json_path.open("r", encoding="utf-8") as f:
+            data: dict[str, Any] = json.load(f)
+    except (json.JSONDecodeError, OSError) as exc:
+        raise AuthError(f"Cannot parse {auth_json_path}: {exc}") from exc
+
+    return data
+
+
+def _extract_auth_fields(data: dict[str, Any]) -> tuple[str | None, bool]:
+    """Extract API-key presence and OAuth-token presence from auth data.
+
+    Supports both the legacy nested ``tokens`` shape and newer flat auth.json
+    layouts that store ``api_key`` / ``access_token`` at the top level.
+    """
+    api_key = data.get("OPENAI_API_KEY") or data.get("api_key")
+    if api_key is not None:
+        api_key = str(api_key)
+
+    has_oauth = False
+    tokens = data.get("tokens")
+    if isinstance(tokens, dict) and (
+        tokens.get("refresh_token") or tokens.get("access_token")
+    ):
+        has_oauth = True
+
+    if data.get("refresh_token") or data.get("access_token"):
+        has_oauth = True
+
+    return api_key, has_oauth
+
+
 def activate_apikey_profile(profile_dir: Path) -> None:
     """Activate a Codex API key profile.
 
@@ -73,15 +107,12 @@ def detect_auth_type(auth_json_path: Path) -> str:
     Raises:
         AuthError: If the file can't be parsed or has unknown format.
     """
-    try:
-        with auth_json_path.open("r", encoding="utf-8") as f:
-            data: dict[str, Any] = json.load(f)
-    except (json.JSONDecodeError, OSError) as exc:
-        raise AuthError(f"Cannot parse {auth_json_path}: {exc}") from exc
+    data = _read_auth_json(auth_json_path)
+    api_key, has_oauth = _extract_auth_fields(data)
 
-    if data.get("OPENAI_API_KEY"):
+    if api_key:
         return "apikey"
-    if data.get("tokens"):
+    if has_oauth:
         return "chatgpt"
     raise AuthError(f"Unknown auth.json format in {auth_json_path}")
 
@@ -96,11 +127,10 @@ def extract_api_key(auth_json_path: Path) -> str | None:
         The API key string, or None if not present.
     """
     try:
-        with auth_json_path.open("r", encoding="utf-8") as f:
-            data: dict[str, Any] = json.load(f)
-        key: str | None = data.get("OPENAI_API_KEY")
-        return key
-    except (json.JSONDecodeError, OSError):
+        data = _read_auth_json(auth_json_path)
+        api_key, _has_oauth = _extract_auth_fields(data)
+        return api_key
+    except AuthError:
         return None
 
 

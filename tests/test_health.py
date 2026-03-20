@@ -97,6 +97,30 @@ def test_check_gemini_oauth_revoked_on_invalid_grant(tmp_path: Path) -> None:
     assert status == "revoked"
 
 
+def test_check_gemini_oauth_retries_without_secret_on_400_invalid_client(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "oauth_creds.json").write_text(
+        json.dumps({"refreshToken": "rt"}), encoding="utf-8"
+    )
+
+    first = MagicMock()
+    first.status_code = 400
+    first.json.return_value = {"error": "invalid_client"}
+
+    second = MagicMock()
+    second.status_code = 200
+
+    with patch(
+        "switcher.health.requests.post", side_effect=[first, second]
+    ) as mock_post:
+        status, detail = check_gemini_oauth(tmp_path)
+
+    assert status == "valid"
+    assert "successfully" in detail.lower()
+    assert mock_post.call_count == 2
+
+
 def test_check_gemini_oauth_network_error(tmp_path: Path) -> None:
     (tmp_path / "oauth_creds.json").write_text(
         json.dumps({"refreshToken": "rt"}), encoding="utf-8"
@@ -205,6 +229,39 @@ def test_check_codex_chatgpt_valid(tmp_path: Path) -> None:
         status, _ = check_codex_chatgpt(tmp_path)
 
     assert status == "valid"
+
+
+def test_check_codex_chatgpt_flat_access_token_returns_unknown(tmp_path: Path) -> None:
+    (tmp_path / "auth.json").write_text(
+        json.dumps({"access_token": "at", "account_id": "acct_123"}),
+        encoding="utf-8",
+    )
+    status, detail = check_codex_chatgpt(tmp_path)
+    assert status == "unknown"
+    assert "access token" in detail.lower()
+
+
+def test_check_codex_chatgpt_400_with_access_token_returns_unknown(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "auth.json").write_text(
+        json.dumps(
+            {
+                "tokens": {"refresh_token": "rt", "access_token": "at"},
+                "account_id": "acct_123",
+            }
+        ),
+        encoding="utf-8",
+    )
+    mock_resp = MagicMock()
+    mock_resp.status_code = 400
+    mock_resp.json.return_value = {"error": "invalid_request"}
+
+    with patch("switcher.health.requests.post", return_value=mock_resp):
+        status, detail = check_codex_chatgpt(tmp_path)
+
+    assert status == "unknown"
+    assert "http 400" in detail.lower()
 
 
 # ── check_all_profiles ──────────────────────────────────────────────────────
@@ -338,6 +395,21 @@ def test_check_profile_codex_chatgpt(tmp_path: Path) -> None:
     mock_resp = MagicMock()
     mock_resp.status_code = 200
     with patch("switcher.health.requests.post", return_value=mock_resp):
+        status, _detail = check_profile("codex", profile)
+    assert status == "valid"
+
+
+def test_check_profile_codex_apikey_flat_api_key_format(tmp_path: Path) -> None:
+    import json
+
+    from switcher.health import check_profile
+
+    auth = json.dumps({"api_key": "sk-test-key", "account_id": "acct_123"})
+    profile = _make_health_profile(tmp_path, "apikey", **{"auth.json": auth})
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    with patch("switcher.health.requests.get", return_value=mock_resp):
         status, _detail = check_profile("codex", profile)
     assert status == "valid"
 
