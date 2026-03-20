@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import subprocess
 import sys
 import time
@@ -703,6 +704,108 @@ def cmd_alerts(args: argparse.Namespace) -> None:
         print_warning(f"Could not read errors.log: {exc}")
 
 
+def _parse_exported_env(env_path: Path) -> dict[str, str]:
+    """Parse exported env vars from env.sh."""
+    parsed: dict[str, str] = {}
+    if not env_path.exists():
+        return parsed
+
+    for raw in env_path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = raw.strip()
+        if not line.startswith("export "):
+            continue
+        key_value = line.removeprefix("export ").strip()
+        if "=" not in key_value:
+            continue
+        key, value = key_value.split("=", 1)
+        parsed[key.strip()] = value.strip().strip('"').strip("'")
+    return parsed
+
+
+def cmd_doctor(_args: argparse.Namespace) -> None:
+    """Run auth diagnostics for common OAuth/API-key conflict scenarios."""
+    from switcher.utils import get_codex_dir, get_config_dir, get_gemini_dir
+
+    issues: list[str] = []
+
+    env_file = get_config_dir() / "env.sh"
+    try:
+        file_env = _parse_exported_env(env_file)
+    except OSError as exc:
+        issues.append(f"Could not read env.sh ({env_file}): {exc}")
+        file_env = {}
+
+    process_env = {
+        key: os.environ.get(key, "")
+        for key in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_KEY")
+        if os.environ.get(key)
+    }
+
+    gm_profiles = {p.label: p for p in GeminiProfileManager().list_profiles()}
+    cm_profiles = {p.label: p for p in CodexProfileManager().list_profiles()}
+    active_gemini = get_active_profile("gemini")
+    active_codex = get_active_profile("codex")
+
+    if active_gemini and active_gemini in gm_profiles:
+        profile = gm_profiles[active_gemini]
+        if profile.auth_type == "oauth":
+            if file_env.get("GEMINI_API_KEY") or file_env.get("GOOGLE_API_KEY"):
+                issues.append(
+                    "Gemini active profile is OAuth, but env.sh still exports "
+                    "GEMINI_API_KEY/GOOGLE_API_KEY."
+                )
+            if process_env.get("GEMINI_API_KEY") or process_env.get("GOOGLE_API_KEY"):
+                issues.append(
+                    "Gemini active profile is OAuth, but current shell has "
+                    "GEMINI_API_KEY/GOOGLE_API_KEY set."
+                )
+            if not (profile.path / "oauth_creds.json").exists():
+                issues.append(
+                    f"Gemini OAuth profile '{profile.label}' is missing "
+                    "oauth_creds.json."
+                )
+            gemini_link = get_gemini_dir() / "oauth_creds.json"
+            if gemini_link.exists() and not gemini_link.is_symlink():
+                issues.append(
+                    "~/.gemini/oauth_creds.json is not a symlink. "
+                    "It may contain stale credentials."
+                )
+
+    if active_codex and active_codex in cm_profiles:
+        profile = cm_profiles[active_codex]
+        if profile.auth_type == "chatgpt":
+            if file_env.get("OPENAI_API_KEY"):
+                issues.append(
+                    "Codex active profile is ChatGPT OAuth, but env.sh exports "
+                    "OPENAI_API_KEY."
+                )
+            if process_env.get("OPENAI_API_KEY"):
+                issues.append(
+                    "Codex active profile is ChatGPT OAuth, but current shell has "
+                    "OPENAI_API_KEY set."
+                )
+            if not (profile.path / "auth.json").exists():
+                issues.append(
+                    f"Codex ChatGPT profile '{profile.label}' is missing auth.json."
+                )
+            codex_link = get_codex_dir() / "auth.json"
+            if codex_link.exists() and not codex_link.is_symlink():
+                issues.append(
+                    "~/.codex/auth.json is not a symlink. "
+                    "It may contain stale credentials."
+                )
+
+    print_info("Running auth diagnostics...")
+    if not issues:
+        print_success("No auth conflicts detected.")
+        return
+
+    print_warning(f"Found {len(issues)} auth issue(s):")
+    for item in issues:
+        print(f"  - {item}")
+    print_info("Suggested fix: run 'switcher uninstall' then 'switcher install'.")
+
+
 def cmd_version(args: argparse.Namespace) -> None:
     """Print version, optionally checking PyPI for updates."""
     print(f"ai-account-switcher {__version__}")
@@ -839,6 +942,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--lines", "-n", type=int, default=20,
         help="Number of lines to show (default: 20)",
     )
+    subparsers.add_parser("doctor", help="Diagnose auth env and symlink conflicts")
 
     # version
     version_p = subparsers.add_parser("version", help="Print version")
@@ -939,6 +1043,10 @@ def _dispatch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None
 
     if command == "alerts":
         cmd_alerts(args)
+        return
+
+    if command == "doctor":
+        cmd_doctor(args)
         return
 
     if command == "version":
