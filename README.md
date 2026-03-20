@@ -96,9 +96,10 @@ When Gemini CLI or Codex CLI ships a new release, run this checklist before decl
 4. Import representative auth files (`switcher codex import ...`) for both nested and flat `auth.json` layouts.
 5. Run `./.venv/bin/pytest` and ensure compatibility tests remain green.
 
-Backlog:
+Diagnostics:
 
-- Add `switcher doctor` for explicit env-conflict diagnostics (for example, stale `*_API_KEY` exports versus active OAuth profiles).
+- `switcher doctor` checks for stale API-key exports and broken auth symlinks.
+- `switcher fix` clears common OAuth-mode conflicts and repairs known auth pointers.
 
 ## Installation
 
@@ -151,19 +152,24 @@ pip uninstall ai-account-switcher
 ## Quick Start
 
 ```bash
-# Import your existing Gemini login as a named profile
-switcher gemini import ~/.gemini/oauth_creds.json work
+# One-time shell integration
+switcher install
 
-# Import a second account
-switcher gemini import ~/backup/oauth_creds.json personal
+# Plug-and-play: adopt existing Gemini/Codex logins automatically
+switcher setup
 
-# See all profiles
-switcher gemini list
+# Re-scan and adopt later (idempotent)
+switcher discover
 
-# Switch to the personal account
-switcher gemini switch personal
+# Daily usage: pick best available profile automatically
+switcher use gemini
+switcher use codex
 
-# View the dashboard
+# Diagnose and repair common auth conflicts
+switcher doctor
+switcher fix
+
+# Optional: inspect current state
 switcher
 ```
 
@@ -504,6 +510,11 @@ switcher config set general.log_level debug
 | `switcher config set <key> <value>` | Set a config value |
 | `switcher install` | Install shell integration, hooks, and bin symlink |
 | `switcher uninstall` | Remove all integration |
+| `switcher setup [--adopt\|--fresh] [--no-install]` | Guided setup; adopts existing CLI auth by default |
+| `switcher discover` | Re-scan and adopt existing Gemini/Codex credentials |
+| `switcher use <gemini\|codex>` | Activate active valid profile or healthiest available one |
+| `switcher doctor` | Diagnose auth env/symlink conflicts |
+| `switcher fix` | Repair common auth conflicts (env exports, symlinks, Gemini cache) |
 | `switcher alerts [--lines N]` | Tail recent error-log entries |
 | `switcher version` | Print version |
 | `switcher version --check` | Print version and check PyPI for updates |
