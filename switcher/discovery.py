@@ -6,7 +6,9 @@ import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
+from switcher.auth import gemini_auth
 from switcher.auth.codex_auth import detect_auth_type
+from switcher.auth.keyring_backend import detect_keyring_mode, keyring_read
 from switcher.errors import AuthError
 from switcher.utils import get_codex_dir, get_gemini_dir
 
@@ -55,6 +57,26 @@ def discover_gemini_auth(path: Path | None = None) -> AuthDiscoveryResult:
     """Discover and validate an existing Gemini oauth_creds.json file."""
     auth_path = path if path is not None else get_gemini_dir() / "oauth_creds.json"
     if not auth_path.exists():
+        keyring_blob = None
+        try:
+            keyring_blob = keyring_read(
+                gemini_auth.GEMINI_KEYRING_SERVICE,
+                gemini_auth.GEMINI_KEYRING_KEY,
+            )
+        except Exception:
+            keyring_blob = None
+        if keyring_blob:
+            return AuthDiscoveryResult(
+                cli_name="gemini",
+                path=auth_path,
+                found=True,
+                valid=False,
+                reason=(
+                    "Gemini credentials appear to exist in keyring-only mode; "
+                    "run Gemini once to sync oauth_creds.json, then re-run discover"
+                ),
+                detected_auth_type="oauth",
+            )
         return AuthDiscoveryResult(
             cli_name="gemini",
             path=auth_path,
@@ -100,6 +122,18 @@ def discover_codex_auth(path: Path | None = None) -> AuthDiscoveryResult:
     """Discover and validate an existing Codex auth.json file."""
     auth_path = path if path is not None else get_codex_dir() / "auth.json"
     if not auth_path.exists():
+        if detect_keyring_mode("auto") == "keyring":
+            return AuthDiscoveryResult(
+                cli_name="codex",
+                path=auth_path,
+                found=True,
+                valid=False,
+                reason=(
+                    "Codex auth.json not found; credentials may be keyring-backed. "
+                    "Run codex login status/export then re-run discover"
+                ),
+                detected_auth_type=None,
+            )
         return AuthDiscoveryResult(
             cli_name="codex",
             path=auth_path,

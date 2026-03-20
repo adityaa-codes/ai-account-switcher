@@ -19,7 +19,10 @@ if TYPE_CHECKING:
 
 
 def test_discover_gemini_auth_missing_file(tmp_path: Path) -> None:
-    result = discover_gemini_auth(tmp_path / "oauth_creds.json")
+    from unittest.mock import patch
+
+    with patch("switcher.discovery.keyring_read", return_value=None):
+        result = discover_gemini_auth(tmp_path / "oauth_creds.json")
     assert result.found is False
     assert result.valid is False
     assert "not found" in result.reason.lower()
@@ -76,6 +79,29 @@ def test_discover_codex_auth_valid_chatgpt(tmp_path: Path) -> None:
     assert result.found is True
     assert result.valid is True
     assert result.detected_auth_type == "chatgpt"
+
+
+def test_discover_gemini_auth_keyring_only_signal(tmp_path: Path) -> None:
+    from unittest.mock import patch
+
+    with patch("switcher.discovery.keyring_read", return_value="{}"):
+        result = discover_gemini_auth(tmp_path / "oauth_creds.json")
+
+    assert result.found is True
+    assert result.valid is False
+    assert "keyring-only mode" in result.reason.lower()
+    assert result.detected_auth_type == "oauth"
+
+
+def test_discover_codex_auth_keyring_mode_signal(tmp_path: Path) -> None:
+    from unittest.mock import patch
+
+    with patch("switcher.discovery.detect_keyring_mode", return_value="keyring"):
+        result = discover_codex_auth(tmp_path / "auth.json")
+
+    assert result.found is True
+    assert result.valid is False
+    assert "keyring-backed" in result.reason.lower()
 
 
 def test_discover_existing_auth_uses_default_locations(tmp_path: Path) -> None:
