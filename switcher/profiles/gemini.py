@@ -17,7 +17,7 @@ from switcher.config import load_config
 from switcher.errors import AuthError, ProfileCorruptError, ProfileNotFoundError
 from switcher.profiles.base import Profile, ProfileManager, load_meta, save_meta
 from switcher.state import get_active_profile, set_active_profile
-from switcher.utils import get_config_dir, get_gemini_dir
+from switcher.utils import file_lock, get_config_dir, get_gemini_dir
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -125,37 +125,41 @@ class GeminiProfileManager(ProfileManager):
 
     def switch_to(self, identifier: str) -> str:
         """Switch to a Gemini profile by index or label."""
-        profile = self._resolve_identifier(identifier)
-        config = load_config()
-        storage_mode = config["general"]["storage_mode"]
+        lock_file = get_config_dir() / "switch.gemini"
+        with file_lock(lock_file):
+            profile = self._resolve_identifier(identifier)
+            config = load_config()
+            storage_mode = config["general"]["storage_mode"]
 
-        # Backup current credentials
-        current = get_active_profile("gemini")
-        if current and current != profile.label:
-            try:
-                backup_current_credentials(current)
-            except Exception:
-                logger.warning("Failed to backup current credentials", exc_info=True)
+            # Backup current credentials
+            current = get_active_profile("gemini")
+            if current and current != profile.label:
+                try:
+                    backup_current_credentials(current)
+                except Exception:
+                    logger.warning(
+                        "Failed to backup current credentials", exc_info=True
+                    )
 
-        # Activate based on auth type
-        if profile.meta.get("auth_type") == "apikey":
-            key_file = profile.path / "api_key.txt"
-            if not key_file.exists():
-                raise ProfileCorruptError(
-                    f"Missing api_key.txt in profile '{profile.label}'"
-                )
-            api_key = key_file.read_text(encoding="utf-8").strip()
-            activate_apikey_profile(api_key, profile.label)
-        else:
-            activate_oauth_profile(profile.path, storage_mode)
+            # Activate based on auth type
+            if profile.meta.get("auth_type") == "apikey":
+                key_file = profile.path / "api_key.txt"
+                if not key_file.exists():
+                    raise ProfileCorruptError(
+                        f"Missing api_key.txt in profile '{profile.label}'"
+                    )
+                api_key = key_file.read_text(encoding="utf-8").strip()
+                activate_apikey_profile(api_key, profile.label)
+            else:
+                activate_oauth_profile(profile.path, storage_mode)
 
-        # Update state and meta
-        set_active_profile("gemini", profile.label)
-        profile.meta["last_used"] = datetime.now(timezone.utc).isoformat()
-        save_meta(profile.path, profile.meta)
+            # Update state and meta
+            set_active_profile("gemini", profile.label)
+            profile.meta["last_used"] = datetime.now(timezone.utc).isoformat()
+            save_meta(profile.path, profile.meta)
 
-        logger.info("Switched Gemini to: %s", profile.label)
-        return profile.label
+            logger.info("Switched Gemini to: %s", profile.label)
+            return profile.label
 
     def switch_next(self) -> str:
         """Rotate to the next Gemini profile."""
@@ -195,9 +199,11 @@ class GeminiProfileManager(ProfileManager):
 
         if auth_type == "oauth":
             shutil.copy2(path, profile.path / "oauth_creds.json")
+            (profile.path / "oauth_creds.json").chmod(0o600)
         elif auth_type == "apikey":
             content = path.read_text(encoding="utf-8").strip()
             (profile.path / "api_key.txt").write_text(content + "\n", encoding="utf-8")
+            (profile.path / "api_key.txt").chmod(0o600)
 
         profile.meta["auth_type"] = auth_type
         save_meta(profile.path, profile.meta)
@@ -232,6 +238,7 @@ class GeminiProfileManager(ProfileManager):
 
         out.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, out)
+        out.chmod(0o600)
         logger.info("Exported '%s' → %s", profile.label, out)
         return out
 

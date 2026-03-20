@@ -19,7 +19,7 @@ from switcher.auth.codex_sandbox import restore_policy, snapshot_policy
 from switcher.errors import AuthError, ProfileCorruptError, ProfileNotFoundError
 from switcher.profiles.base import Profile, ProfileManager, load_meta, save_meta
 from switcher.state import get_active_profile, set_active_profile
-from switcher.utils import get_codex_dir, get_config_dir
+from switcher.utils import file_lock, get_codex_dir, get_config_dir
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -118,51 +118,53 @@ class CodexProfileManager(ProfileManager):
 
     def switch_to(self, identifier: str) -> str:
         """Switch to a Codex profile by index or label."""
-        profile = self._resolve_identifier(identifier)
-        codex_dir = self.target_dir
+        lock_file = get_config_dir() / "switch.codex"
+        with file_lock(lock_file):
+            profile = self._resolve_identifier(identifier)
+            codex_dir = self.target_dir
 
-        # Snapshot departing profile's memory, plugins, and sandbox policy.
-        current_label = get_active_profile("codex")
-        if current_label and current_label != profile.label:
-            departing_path = self.profiles_dir / current_label
-            if departing_path.is_dir():
-                snapshot_memory(codex_dir, departing_path)
-                snapshot_plugins(codex_dir, departing_path)
-                snapshot_policy(codex_dir, departing_path)
+            # Snapshot departing profile's memory, plugins, and sandbox policy.
+            current_label = get_active_profile("codex")
+            if current_label and current_label != profile.label:
+                departing_path = self.profiles_dir / current_label
+                if departing_path.is_dir():
+                    snapshot_memory(codex_dir, departing_path)
+                    snapshot_plugins(codex_dir, departing_path)
+                    snapshot_policy(codex_dir, departing_path)
 
-        # Activate based on auth type
-        auth_type = profile.meta.get("auth_type", "unknown")
-        if auth_type == "apikey":
-            auth_file = profile.path / "auth.json"
-            if not auth_file.exists():
-                raise ProfileCorruptError(
-                    f"Missing auth.json in profile '{profile.label}'"
+            # Activate based on auth type
+            auth_type = profile.meta.get("auth_type", "unknown")
+            if auth_type == "apikey":
+                auth_file = profile.path / "auth.json"
+                if not auth_file.exists():
+                    raise ProfileCorruptError(
+                        f"Missing auth.json in profile '{profile.label}'"
+                    )
+                activate_apikey_profile(profile.path)
+            elif auth_type == "chatgpt":
+                auth_file = profile.path / "auth.json"
+                if not auth_file.exists():
+                    raise ProfileCorruptError(
+                        f"Missing auth.json in profile '{profile.label}'"
+                    )
+                activate_chatgpt_profile(profile.path)
+            else:
+                raise AuthError(
+                    f"Unknown auth type '{auth_type}' for profile '{profile.label}'"
                 )
-            activate_apikey_profile(profile.path)
-        elif auth_type == "chatgpt":
-            auth_file = profile.path / "auth.json"
-            if not auth_file.exists():
-                raise ProfileCorruptError(
-                    f"Missing auth.json in profile '{profile.label}'"
-                )
-            activate_chatgpt_profile(profile.path)
-        else:
-            raise AuthError(
-                f"Unknown auth type '{auth_type}' for profile '{profile.label}'"
-            )
 
-        # Restore incoming profile's memory and sandbox policy.
-        restore_memory(profile.path, codex_dir)
-        restore_policy(profile.path, codex_dir)
-        warn_plugin_divergence(profile.path, codex_dir)
+            # Restore incoming profile's memory and sandbox policy.
+            restore_memory(profile.path, codex_dir)
+            restore_policy(profile.path, codex_dir)
+            warn_plugin_divergence(profile.path, codex_dir)
 
-        # Update state and meta
-        set_active_profile("codex", profile.label)
-        profile.meta["last_used"] = datetime.now(timezone.utc).isoformat()
-        save_meta(profile.path, profile.meta)
+            # Update state and meta
+            set_active_profile("codex", profile.label)
+            profile.meta["last_used"] = datetime.now(timezone.utc).isoformat()
+            save_meta(profile.path, profile.meta)
 
-        logger.info("Switched Codex to: %s", profile.label)
-        return profile.label
+            logger.info("Switched Codex to: %s", profile.label)
+            return profile.label
 
     def switch_next(self) -> str:
         """Rotate to the next Codex profile."""
@@ -206,6 +208,7 @@ class CodexProfileManager(ProfileManager):
                 with path.open("r", encoding="utf-8") as _f:
                     json.load(_f)
                 shutil.copy2(path, profile.path / "auth.json")
+                (profile.path / "auth.json").chmod(0o600)
             except (json.JSONDecodeError, OSError):
                 # Plain text API key — create a proper auth.json structure
                 api_key = path.read_text(encoding="utf-8").strip()
@@ -217,6 +220,7 @@ class CodexProfileManager(ProfileManager):
                 with (profile.path / "auth.json").open("w", encoding="utf-8") as f:
                     json.dump(auth_data, f, indent=2)
                     f.write("\n")
+                (profile.path / "auth.json").chmod(0o600)
 
         profile.meta["auth_type"] = auth_type
         save_meta(profile.path, profile.meta)
@@ -245,6 +249,7 @@ class CodexProfileManager(ProfileManager):
 
         out.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, out)
+        out.chmod(0o600)
         logger.info("Exported '%s' → %s", profile.label, out)
         return out
 
