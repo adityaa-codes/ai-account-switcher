@@ -1,0 +1,118 @@
+"""Helpers for discovering existing local Gemini/Codex auth state."""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+from switcher.auth.codex_auth import detect_auth_type
+from switcher.errors import AuthError
+from switcher.utils import get_codex_dir, get_gemini_dir
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+
+@dataclass(slots=True)
+class AuthDiscoveryResult:
+    """Result for a discovered auth file."""
+
+    cli_name: str
+    path: Path
+    found: bool
+    valid: bool
+    reason: str
+
+
+def _has_gemini_oauth_tokens(payload: dict[str, object]) -> bool:
+    """Return True when Gemini oauth payload contains token fields."""
+    token = payload.get("token", payload)
+    if not isinstance(token, dict):
+        return False
+    return bool(
+        token.get("refreshToken")
+        or token.get("refresh_token")
+        or token.get("accessToken")
+        or token.get("access_token")
+    )
+
+
+def discover_gemini_auth(path: Path | None = None) -> AuthDiscoveryResult:
+    """Discover and validate an existing Gemini oauth_creds.json file."""
+    auth_path = path if path is not None else get_gemini_dir() / "oauth_creds.json"
+    if not auth_path.exists():
+        return AuthDiscoveryResult(
+            cli_name="gemini",
+            path=auth_path,
+            found=False,
+            valid=False,
+            reason="Gemini oauth_creds.json not found",
+        )
+
+    try:
+        payload = json.loads(auth_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return AuthDiscoveryResult(
+            cli_name="gemini",
+            path=auth_path,
+            found=True,
+            valid=False,
+            reason="Gemini oauth_creds.json is not valid JSON",
+        )
+
+    if not isinstance(payload, dict) or not _has_gemini_oauth_tokens(payload):
+        return AuthDiscoveryResult(
+            cli_name="gemini",
+            path=auth_path,
+            found=True,
+            valid=False,
+            reason="Gemini oauth_creds.json is missing OAuth token fields",
+        )
+
+    return AuthDiscoveryResult(
+        cli_name="gemini",
+        path=auth_path,
+        found=True,
+        valid=True,
+        reason="Gemini OAuth credentials discovered",
+    )
+
+
+def discover_codex_auth(path: Path | None = None) -> AuthDiscoveryResult:
+    """Discover and validate an existing Codex auth.json file."""
+    auth_path = path if path is not None else get_codex_dir() / "auth.json"
+    if not auth_path.exists():
+        return AuthDiscoveryResult(
+            cli_name="codex",
+            path=auth_path,
+            found=False,
+            valid=False,
+            reason="Codex auth.json not found",
+        )
+
+    try:
+        detect_auth_type(auth_path)
+    except AuthError as exc:
+        return AuthDiscoveryResult(
+            cli_name="codex",
+            path=auth_path,
+            found=True,
+            valid=False,
+            reason=f"Codex auth.json is invalid: {exc}",
+        )
+
+    return AuthDiscoveryResult(
+        cli_name="codex",
+        path=auth_path,
+        found=True,
+        valid=True,
+        reason="Codex credentials discovered",
+    )
+
+
+def discover_existing_auth() -> dict[str, AuthDiscoveryResult]:
+    """Discover existing auth files for both supported CLIs."""
+    gemini = discover_gemini_auth()
+    codex = discover_codex_auth()
+    return {"gemini": gemini, "codex": codex}
