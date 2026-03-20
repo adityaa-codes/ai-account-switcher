@@ -609,12 +609,64 @@ def test_cmd_setup_imports_discovered_credentials(
         ),
     ):
         mock_get_mgr.return_value = MagicMock()
-        cmd_setup(argparse.Namespace())
+        cmd_setup(argparse.Namespace(adopt=True, no_install=False))
 
     out = capsys.readouterr().out
     assert "Setup complete" in out
     assert "personal-gemini" in out
     assert "codex: not found" in out
+
+
+def test_cmd_setup_fresh_mode_skips_adoption(capsys: pytest.CaptureFixture) -> None:
+    from switcher.cli import cmd_setup
+
+    with (
+        patch("switcher.installer.run_install") as mock_install,
+        patch("switcher.discovery.discover_existing_auth") as mock_discover,
+    ):
+        cmd_setup(argparse.Namespace(adopt=False, no_install=False))
+
+    out = capsys.readouterr().out
+    assert "Fresh setup mode" in out
+    mock_install.assert_called_once()
+    mock_discover.assert_not_called()
+
+
+def test_cmd_setup_no_install_mode(capsys: pytest.CaptureFixture) -> None:
+    from pathlib import Path
+
+    from switcher.cli import cmd_setup
+    from switcher.discovery import AuthDiscoveryResult
+
+    gm_result = AuthDiscoveryResult(
+        cli_name="gemini",
+        path=Path("/tmp/gm/oauth_creds.json"),
+        found=False,
+        valid=False,
+        reason="not found",
+        detected_auth_type=None,
+    )
+    cx_result = AuthDiscoveryResult(
+        cli_name="codex",
+        path=Path("/tmp/cx/auth.json"),
+        found=False,
+        valid=False,
+        reason="not found",
+        detected_auth_type=None,
+    )
+
+    with (
+        patch("switcher.installer.run_install") as mock_install,
+        patch(
+            "switcher.discovery.discover_existing_auth",
+            return_value={"gemini": gm_result, "codex": cx_result},
+        ),
+    ):
+        cmd_setup(argparse.Namespace(adopt=True, no_install=True))
+
+    out = capsys.readouterr().out
+    assert "Skipping install step" in out
+    mock_install.assert_not_called()
 
 
 def test_dispatch_gemini_list() -> None:

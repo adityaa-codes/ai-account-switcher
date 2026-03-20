@@ -674,12 +674,30 @@ def cmd_uninstall(_args: argparse.Namespace) -> None:
     run_uninstall()
 
 
-def cmd_setup(_args: argparse.Namespace) -> None:
-    """Run guided setup: install integration and adopt existing credentials."""
+def cmd_setup(args: argparse.Namespace) -> None:
+    """Run guided setup with optional install and auth-adoption modes."""
     from switcher.discovery import adopt_discovered_auth, discover_existing_auth
     from switcher.installer import run_install
 
-    run_install()
+    should_install = not bool(getattr(args, "no_install", False))
+    adopt_mode = bool(getattr(args, "adopt", True))
+
+    if should_install:
+        run_install()
+    else:
+        print_info("Skipping install step (--no-install).")
+
+    if not adopt_mode:
+        print()
+        print_info("Fresh setup mode selected (--fresh).")
+        print_info("Complete provider login, then import into switcher:")
+        print_info("  1) command gemini   # login with Google")
+        print_info("  2) command codex    # login with ChatGPT/OpenAI")
+        print_info(
+            "  3) switcher gemini import ~/.gemini/oauth_creds.json personal-gemini"
+        )
+        print_info("  4) switcher codex import ~/.codex/auth.json personal-codex")
+        return
 
     print()
     print_info("Scanning for existing Gemini/Codex credentials...")
@@ -983,7 +1001,26 @@ def build_parser() -> argparse.ArgumentParser:
     # install / uninstall
     subparsers.add_parser("install", help="Install shell + hook integration")
     subparsers.add_parser("uninstall", help="Remove shell + hook integration")
-    subparsers.add_parser("setup", help="Run guided setup")
+    setup_p = subparsers.add_parser("setup", help="Run guided setup")
+    mode_group = setup_p.add_mutually_exclusive_group()
+    mode_group.add_argument(
+        "--adopt",
+        dest="adopt",
+        action="store_true",
+        default=True,
+        help="Adopt existing local credentials (default)",
+    )
+    mode_group.add_argument(
+        "--fresh",
+        dest="adopt",
+        action="store_false",
+        help="Skip adoption and guide a fresh login flow",
+    )
+    setup_p.add_argument(
+        "--no-install",
+        action="store_true",
+        help="Skip install integration step and only run setup flow",
+    )
 
     # alerts — show recent error log entries
     alerts_p = subparsers.add_parser("alerts", help="Show recent error log entries")

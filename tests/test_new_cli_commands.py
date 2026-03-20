@@ -415,6 +415,20 @@ class TestDoctorCommand:
         parser = build_parser()
         args = parser.parse_args(["setup"])
         assert args.command == "setup"
+        assert args.adopt is True
+        assert args.no_install is False
+
+    def test_build_parser_supports_setup_fresh_mode(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["setup", "--fresh"])
+        assert args.command == "setup"
+        assert args.adopt is False
+
+    def test_build_parser_supports_setup_no_install(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["setup", "--no-install"])
+        assert args.command == "setup"
+        assert args.no_install is True
 
     def test_doctor_no_issues(self, tmp_path: Path, capsys: object) -> None:
         """Doctor prints success when no auth conflicts are detected."""
