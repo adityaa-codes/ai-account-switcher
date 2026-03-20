@@ -6,6 +6,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and 
 
 ---
 
+## [0.4.0] — 2026-03-20
+
+### Added
+
+- Added a plug-and-play onboarding flow with `switcher setup`, `switcher discover`, and `switcher use <gemini|codex>` to adopt existing local auth and select usable profiles without manual label selection.
+- Added `switcher fix` and expanded `switcher doctor` diagnostics to detect and remediate stale auth env conflicts and symlink mismatches.
+- Added an acceptance smoke script at `scripts/acceptance-smoke.sh` to validate adopt, fresh-setup guidance, and remediation flows quickly.
+
+### Changed
+
+- Updated Quick Start and troubleshooting documentation to prioritize setup/adoption and recovery-first workflows.
+- Made automatic `switcher use` behavior conservative for unknown health states, with an explicit `--allow-unknown` override.
+
+### Fixed
+
+- Aligned Codex env-var handling so both `OPENAI_API_KEY` and `CODEX_API_KEY` are exported, preserved, and cleared consistently.
+- Improved discovery and diagnostics for keyring-backed auth states when file-based credentials are absent.
+- Hardened profile switching and repair operations with lock protection and `0600` permissions for sensitive credential artifacts.
+- Expanded Gemini cache cleanup to remove both MCP and A2A OAuth token cache files.
+
+---
+
 ## [0.3.0] — 2026-03-10
 
 ### Added

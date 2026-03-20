@@ -136,7 +136,7 @@ source ~/.config/fish/config.fish   # fish
 
 ```bash
 switcher version
-# ai-account-switcher 0.3.0
+# ai-account-switcher 0.4.0
 
 switcher
 # Shows the status dashboard
