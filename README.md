@@ -69,6 +69,37 @@ Switch between multiple Google Gemini and OpenAI Codex accounts instantly — no
 | **CLI tools** | [Gemini CLI](https://github.com/google-gemini/gemini-cli) and/or [Codex CLI](https://github.com/openai/codex) |
 | **Optional** | GNOME Keyring or KWallet for secure credential storage |
 
+## Compatibility Matrix and Upstream Assumptions
+
+`ai-account-switcher` tracks upstream CLI internals that can change between releases.
+The versions below are the ones currently validated by this project.
+
+| Component | Validated versions | Notes |
+|---|---|---|
+| Gemini CLI | `0.33.x` to `0.34.0-nightly` | OAuth client discovery supports multiple `gemini-cli-core/dist/` layouts and caches discovered credentials for 24h. |
+| Codex CLI | `0.113.0` | `auth.json` detection supports legacy nested `tokens` and newer flat `api_key` / `access_token` layouts. |
+
+Current compatibility assumptions:
+
+- Gemini OAuth client constants may move between `dist/src/code_assist/oauth2.js`, `dist/src/auth/oauth2.js`, and `dist/src/oauth.js`.
+- Gemini quota checks rely on undocumented internal endpoints (`loadCodeAssist`, `retrieveUserQuota`); failures degrade gracefully without breaking profile switching.
+- Codex OAuth validation is refresh-token based when available; access-token-only formats are reported as `unknown` (not `expired`) to avoid false negatives.
+- Codex auth-mode detection treats either `OPENAI_API_KEY` or `api_key` as API-key mode.
+
+### Upstream Release Verification Checklist
+
+When Gemini CLI or Codex CLI ships a new release, run this checklist before declaring support:
+
+1. Run `switcher gemini health` and verify OAuth refresh still succeeds.
+2. Run `switcher gemini quota` and verify tier/reset parsing still works.
+3. Run `switcher codex health` against both API-key and ChatGPT profiles.
+4. Import representative auth files (`switcher codex import ...`) for both nested and flat `auth.json` layouts.
+5. Run `./.venv/bin/pytest` and ensure compatibility tests remain green.
+
+Backlog:
+
+- Add `switcher doctor` for explicit env-conflict diagnostics (for example, stale `*_API_KEY` exports versus active OAuth profiles).
+
 ## Installation
 
 ### From Source (recommended)
