@@ -676,7 +676,6 @@ def cmd_uninstall(_args: argparse.Namespace) -> None:
 
 def cmd_setup(args: argparse.Namespace) -> None:
     """Run guided setup with optional install and auth-adoption modes."""
-    from switcher.discovery import adopt_discovered_auth, discover_existing_auth
     from switcher.installer import run_install
 
     should_install = not bool(getattr(args, "no_install", False))
@@ -699,6 +698,18 @@ def cmd_setup(args: argparse.Namespace) -> None:
         print_info("  4) switcher codex import ~/.codex/auth.json personal-codex")
         return
 
+    _adopt_discovered_credentials()
+
+    print_info("Next steps:")
+    print_info("  1) Run: switcher status")
+    print_info("  2) Run: switcher gemini health")
+    print_info("  3) Run: switcher codex health")
+
+
+def _adopt_discovered_credentials() -> tuple[list[str], list[str]]:
+    """Discover and adopt existing credentials for both CLIs."""
+    from switcher.discovery import adopt_discovered_auth, discover_existing_auth
+
     print()
     print_info("Scanning for existing Gemini/Codex credentials...")
     results = discover_existing_auth()
@@ -708,10 +719,7 @@ def cmd_setup(args: argparse.Namespace) -> None:
 
     for cli_name in ("gemini", "codex"):
         result = results[cli_name]
-        if not result.found:
-            skipped.append(f"{cli_name}: {result.reason}")
-            continue
-        if not result.valid:
+        if not result.found or not result.valid:
             skipped.append(f"{cli_name}: {result.reason}")
             continue
 
@@ -734,10 +742,12 @@ def cmd_setup(args: argparse.Namespace) -> None:
         print_info(f"  • {line}")
 
     print()
-    print_info("Next steps:")
-    print_info("  1) Run: switcher status")
-    print_info("  2) Run: switcher gemini health")
-    print_info("  3) Run: switcher codex health")
+    return imported, skipped
+
+
+def cmd_discover(_args: argparse.Namespace) -> None:
+    """Re-scan and adopt existing local credentials without install steps."""
+    _adopt_discovered_credentials()
 
 
 def cmd_alerts(args: argparse.Namespace) -> None:
@@ -1002,6 +1012,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("install", help="Install shell + hook integration")
     subparsers.add_parser("uninstall", help="Remove shell + hook integration")
     setup_p = subparsers.add_parser("setup", help="Run guided setup")
+    subparsers.add_parser("discover", help="Discover and adopt existing credentials")
     mode_group = setup_p.add_mutually_exclusive_group()
     mode_group.add_argument(
         "--adopt",
@@ -1129,6 +1140,10 @@ def _dispatch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None
 
     if command == "setup":
         cmd_setup(args)
+        return
+
+    if command == "discover":
+        cmd_discover(args)
         return
 
     if command == "alerts":

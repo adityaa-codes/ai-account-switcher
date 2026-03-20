@@ -568,6 +568,13 @@ def test_dispatch_setup_command() -> None:
     mock_setup.assert_called_once()
 
 
+def test_dispatch_discover_command() -> None:
+    parser = build_parser()
+    with patch("switcher.cli.cmd_discover") as mock_discover:
+        _dispatch(parser, argparse.Namespace(command="discover"))
+    mock_discover.assert_called_once()
+
+
 def test_cmd_setup_imports_discovered_credentials(
     capsys: pytest.CaptureFixture,
 ) -> None:
@@ -615,6 +622,14 @@ def test_cmd_setup_imports_discovered_credentials(
     assert "Setup complete" in out
     assert "personal-gemini" in out
     assert "codex: not found" in out
+
+
+def test_cmd_discover_uses_adoption_flow(capsys: pytest.CaptureFixture) -> None:
+    from switcher.cli import cmd_discover
+
+    with patch("switcher.cli._adopt_discovered_credentials") as mock_adopt:
+        cmd_discover(argparse.Namespace())
+    mock_adopt.assert_called_once()
 
 
 def test_cmd_setup_fresh_mode_skips_adoption(capsys: pytest.CaptureFixture) -> None:

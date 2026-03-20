@@ -418,6 +418,11 @@ class TestDoctorCommand:
         assert args.adopt is True
         assert args.no_install is False
 
+    def test_build_parser_supports_discover_command(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["discover"])
+        assert args.command == "discover"
+
     def test_build_parser_supports_setup_fresh_mode(self) -> None:
         parser = build_parser()
         args = parser.parse_args(["setup", "--fresh"])
