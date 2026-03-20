@@ -427,6 +427,16 @@ Health checks verify:
 - **API keys** — make a lightweight API call to confirm the key is active
 - **Status values** — `healthy`, `expired`, `invalid`, `rate_limited`, `unknown`
 
+### Troubleshooting Quick Fixes
+
+| Symptom | Likely cause | One-line fix |
+|---|---|---|
+| Stuck on Gemini sign-in screen | Non-interactive OAuth launch or stale auth mode | `NO_BROWSER=true gemini` |
+| Gemini OAuth consent failed | Browser flow failed in current terminal session | `switcher doctor && switcher fix` |
+| Codex keeps using API key instead of OAuth | Stale `OPENAI_API_KEY` export overrides file auth | `switcher fix` |
+| Already logged in but profile not visible in switcher | Credentials not adopted yet | `switcher discover` |
+| Fresh machine setup confusion | Shell integration/adopt flow not run yet | `switcher setup` |
+
 ### Pool Management
 
 The `pool` sub-commands offer a focused view of the rotation pool:
